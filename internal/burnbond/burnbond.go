@@ -31,7 +31,7 @@ const (
 	lgnsDecimals      = 9
 	defaultClaimLimit = 10
 	maxClaimLimit     = 50
-	transferLookback  = 100_000 // blocks
+	transferLookback  = 1_000_000 // blocks (~12d @1s); early-stop still caps work
 	maxLogRange       = 5_000   // rpc.anubispace.org eth_getLogs cap
 )
 
@@ -360,35 +360,32 @@ func LoadClaimsViaTransfer(ctx context.Context, cli *ethclient.Client, user stri
 				}
 			}
 		}
-		if len(all) >= limit || start <= from {
-			break
+		stoppedEarly := ctx.Err() != nil
+		if len(all) >= limit || start <= from || stoppedEarly {
+			sort.Slice(all, func(i, j int) bool {
+				if all[i].Block != all[j].Block {
+					return all[i].Block > all[j].Block
+				}
+				return strings.ToLower(all[i].TxHash) > strings.ToLower(all[j].TxHash)
+			})
+			if len(all) > limit {
+				all = all[:limit]
+			}
+			nextBefore := uint64(0)
+			if len(all) >= limit {
+				minBlock := all[len(all)-1].Block
+				if minBlock > 0 {
+					nextBefore = minBlock - 1
+				}
+			} else if stoppedEarly && start > from {
+				// More history may exist below the cancelled window.
+				nextBefore = start - 1
+			}
+			if okChunks == 0 && len(chunkErrs) > 0 {
+				return all, nextBefore, fmt.Errorf("%s", strings.Join(chunkErrs, "; "))
+			}
+			return all, nextBefore, nil
 		}
 		end = start - 1
-		if ctx.Err() != nil {
-			break
-		}
 	}
-
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].Block != all[j].Block {
-			return all[i].Block > all[j].Block
-		}
-		return strings.ToLower(all[i].TxHash) > strings.ToLower(all[j].TxHash)
-	})
-	if len(all) > limit {
-		all = all[:limit]
-	}
-
-	nextBefore := uint64(0)
-	if len(all) >= limit {
-		minBlock := all[len(all)-1].Block
-		if minBlock > 0 {
-			nextBefore = minBlock - 1
-		}
-	}
-
-	if okChunks == 0 && len(chunkErrs) > 0 {
-		return all, nextBefore, fmt.Errorf("%s", strings.Join(chunkErrs, "; "))
-	}
-	return all, nextBefore, nil
 }
