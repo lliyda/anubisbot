@@ -47,10 +47,9 @@ body {
   font: inherit;
   font-family: var(--mono);
   line-height: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
 }
-.addr-link-btn:hover { color: var(--accent-hover); }
+.addr-link-btn:hover { color: var(--accent-hover); text-decoration: none; }
 .addr-link-btn:focus { outline: none; }
 .addr-link-btn:focus-visible {
   outline: 2px solid rgba(15, 118, 110, 0.35);
@@ -92,33 +91,33 @@ td.addr-cell {
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   margin: 0;
   padding: 0;
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: var(--muted);
+  color: #929292;
   cursor: pointer;
   vertical-align: middle;
   line-height: 0;
 }
 .addr-copy-btn:hover {
-  color: var(--accent);
-  background: rgba(15, 118, 110, 0.08);
+  color: #666666;
+  background: transparent;
 }
 .addr-copy-btn:focus {
   outline: none;
 }
 .addr-copy-btn:focus-visible {
-  outline: 2px solid rgba(15, 118, 110, 0.35);
+  outline: 2px solid rgba(146, 146, 146, 0.45);
   outline-offset: 1px;
 }
 .addr-copy-icon {
   display: block;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 .topbar {
