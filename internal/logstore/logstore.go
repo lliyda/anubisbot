@@ -162,6 +162,35 @@ func (s *Store) Add(e Entry) Entry {
 	return out
 }
 
+// Patch updates an in-memory entry by ID and rewrites the JSONL file.
+func (s *Store) Patch(id string, fn func(*Entry)) bool {
+	if id == "" || fn == nil {
+		return false
+	}
+	s.mu.Lock()
+	idx := -1
+	for i := range s.entries {
+		if s.entries[i].ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		s.mu.Unlock()
+		return false
+	}
+	fn(&s.entries[idx])
+	s.mu.Unlock()
+
+	if s.path == "" {
+		return true
+	}
+	s.fileMu.Lock()
+	defer s.fileMu.Unlock()
+	s.rewriteFileLocked()
+	return true
+}
+
 func (s *Store) List(limit int, taskID string, failedOnly bool) []Entry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

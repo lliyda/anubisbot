@@ -14,6 +14,7 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
@@ -127,6 +128,46 @@ func Load(ctx context.Context, cli *ethclient.Client, addr string) Snapshot {
 	out.Claims = claims
 	out.Errors = append(out.Errors, errs...)
 	return out
+}
+
+// SumClaimedLGNS sums Claimed event amounts from a bond claim receipt.
+func SumClaimedLGNS(rec *types.Receipt) (formatted string, raw *big.Int, n int) {
+	raw = big.NewInt(0)
+	if rec == nil {
+		return "", raw, 0
+	}
+	fixed := common.HexToAddress(FixedPrice)
+	lgns := common.HexToAddress(LgnsBurn)
+	for _, lg := range rec.Logs {
+		if lg == nil || len(lg.Topics) < 1 {
+			continue
+		}
+		if lg.Topics[0] != claimedTopic {
+			continue
+		}
+		if lg.Address != fixed && lg.Address != lgns {
+			continue
+		}
+		amount := big.NewInt(0)
+		if len(lg.Data) >= 32 {
+			amount = new(big.Int).SetBytes(lg.Data[len(lg.Data)-32:])
+		}
+		raw.Add(raw, amount)
+		n++
+	}
+	if n == 0 || raw.Sign() <= 0 {
+		return "", raw, n
+	}
+	return tokenbal.Format(raw, lgnsDecimals), raw, n
+}
+
+// IsBondClaimContract reports whether to is a fixed-price or LGNS burn bond.
+func IsBondClaimContract(to string) bool {
+	if to == "" {
+		return false
+	}
+	a := common.HexToAddress(to)
+	return a == common.HexToAddress(FixedPrice) || a == common.HexToAddress(LgnsBurn)
 }
 
 func emptyView(b bondMeta) BondView {
