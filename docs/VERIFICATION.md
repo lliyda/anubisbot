@@ -6,8 +6,8 @@
 
 | 类型 | 合约 | 方法 | 开放时刻 |
 | --- | --- | --- | --- |
-| 固定价销毁债券 | `0x3f403751975e1EB06d95901f7FF246513444E71F` | `claimAll()` `0x4e71d92d` | 整点整秒 |
-| LGNS 销毁债券 | `0x11b10C9827c5B7071E96fcAa143B4e6E86b17c69` | `claimAll()` `0x4e71d92d` | 整点整秒 |
+| 固定价销毁债券 | `0x3f403751975e1EB06d95901f7FF246513444E71F` | `claimAll()` `0xd1058e59` | 整点整秒 |
+| LGNS 销毁债券 | `0x11b10C9827c5B7071E96fcAa143B4e6E86b17c69` | `claimAll()` `0xd1058e59` | 整点整秒 |
 | Helix | `0x9E68F61E2615cc1D2C4a2D0026bFc1EBFdf68C1b` | `burnForPower` `0xffa6b88a` amount=500e9 | ~11:59:01 +08 |
 
 债券类与 Origin 页面「领取全部」对齐；不再使用按存款下标的 `claim(uint256)`。
