@@ -575,9 +575,17 @@ function markLogsSeen(taskId, logs) {
   if (newest) localStorage.setItem(logSeenKey(taskId), newest);
 }
 
+function formatLGNSCommas(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const [intPart, frac] = s.split(".");
+  const withComma = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return frac != null && frac !== "" ? `${withComma}.${frac}` : withComma;
+}
+
 function formatTaskRecord(l) {
   const ex = l.extra || {};
-  const amt = ex.amount || "";
+  const amt = String(ex.amount || "").replace(/\s*·\s*[\d.,]+\s*LGNS/i, "").trim() || ex.amount || "";
   if (l.event === "broadcast" || l.event === "sent" || l.event === "would_send") {
     const rpc = l.rpcId || ex.rpcId || "";
     return {
@@ -588,11 +596,21 @@ function formatTaskRecord(l) {
   }
   if (l.event === "result") {
     const ok = ex.ok !== false && !l.error;
+    let title = ok ? "成功" : "失败";
+    if (ok) {
+      if (ex.claimedLGNS) {
+        title = `成功 => ${formatLGNSCommas(ex.claimedLGNS)} LGNS`;
+      } else if (ex.claimedPending) {
+        title = "成功 正在读取链上数据...";
+      }
+    }
     let detail = amt || "";
     if (ok && ex.blockNumber != null) {
       const idx = (ex.txIndex != null ? Number(ex.txIndex) + 1 : "—");
       const parts = [amt];
-      if (ex.hourBlock != null && ex.hourBlock !== "") {
+      if (ex.fireAtLabel && ex.hourBlock != null && ex.hourBlock !== "") {
+        parts.push(`${ex.fireAtLabel} 第 ${ex.hourBlock} 块`);
+      } else if (ex.hourBlock != null && ex.hourBlock !== "") {
         parts.push(`整点第 ${ex.hourBlock} 块`);
       }
       parts.push(`块内第 ${idx} 笔`, `高度 ${ex.blockNumber}`);
@@ -606,7 +624,7 @@ function formatTaskRecord(l) {
     } else if (ex.elapsedMs != null && ex.elapsedMs !== "") {
       detail = [detail, `${ex.elapsedMs}ms`].filter(Boolean).join(" · ");
     }
-    return { bad: !ok, title: ok ? "成功" : "失败", detail };
+    return { bad: !ok, title, detail };
   }
   return { bad: !!l.error, title: l.event, detail: l.message || "" };
 }
@@ -634,11 +652,13 @@ function renderTaskLogRows(box, logs) {
   }).join("");
 }
 
-function resultAmountHasLGNS(logs) {
+function resultNeedsClaimPoll(logs) {
   return (logs || []).some((l) => {
     if (l.event !== "result") return false;
-    const amt = String(l.extra?.amount || l.message || "");
-    return /LGNS/i.test(amt);
+    const ex = l.extra || {};
+    if (ex.ok === false || l.error) return false;
+    if (ex.claimedLGNS) return false;
+    return !!ex.claimedPending;
   });
 }
 
@@ -671,9 +691,9 @@ async function openTaskLogs(taskId) {
   try {
     let logs = await fetchAndRender();
     if (!stillOpen() || !logs) return;
-    // Poll briefly for async claimedLGNS backfill on the same result row.
-    for (let i = 0; i < 5 && stillOpen(); i++) {
-      if (resultAmountHasLGNS(logs)) break;
+    // Poll while claimedPending until claimedLGNS appears (~15s).
+    for (let i = 0; i < 8 && stillOpen(); i++) {
+      if (!resultNeedsClaimPoll(logs)) break;
       await new Promise((r) => setTimeout(r, 2000));
       if (!stillOpen()) break;
       logs = await fetchAndRender();

@@ -333,6 +333,7 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 						extra["includeMs"] = ms
 					}
 					fireAt := time.Unix(0, fireKey).UTC()
+					extra["fireAtLabel"] = fireAtLabelCST(fireAt)
 					if hb := hourBlockOf(ctx, s.RPC, lastRPC, bn, fireAt); hb > 0 {
 						extra["hourBlock"] = hb
 					}
@@ -380,20 +381,20 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 		includeSuffix = fmt.Sprintf(" · 上链 %dms", v)
 	}
 
+	isBond := burnbond.IsBondClaimContract(preset.To)
+	if anyOK && successRec != nil && isBond {
+		if formatted, _, n := burnbond.SumClaimedLGNS(successRec); n > 0 && formatted != "" {
+			extra["claimedLGNS"] = formatted
+			delete(extra, "claimedPending")
+		} else {
+			extra["claimedPending"] = true
+		}
+	}
+
 	msg := "失败"
 	ev := "result"
 	if anyOK {
-		msg = "成功"
-		if bn, ok := extra["blockNumber"].(uint64); ok {
-			idx, _ := extra["txIndex"].(uint64)
-			if hb, ok := extra["hourBlock"].(uint64); ok && hb > 0 {
-				msg = fmt.Sprintf("成功 · %s · 整点第 %d 块 · 块内第 %d 笔 · 高度 %d%s", amt, hb, idx+1, bn, includeSuffix)
-			} else {
-				msg = fmt.Sprintf("成功 · %s · 块内第 %d 笔 · 高度 %d%s", amt, idx+1, bn, includeSuffix)
-			}
-		} else {
-			msg = fmt.Sprintf("成功 · %s · %dms", amt, elapsedMs)
-		}
+		msg = formatSuccessMessage(extra, amt, elapsedMs, includeSuffix)
 	} else if tt.LastError != "" {
 		msg = "失败 · " + tt.LastError + includeSuffix
 	}
@@ -402,8 +403,10 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 		Message: msg, TxHash: lastHash, RPCID: lastRPC, RTTMs: lastRTT,
 		Error: tt.LastError, Extra: extra,
 	})
-	if anyOK && successRec != nil && burnbond.IsBondClaimContract(preset.To) {
-		go s.backfillClaimedAmount(entry.ID, successRec, amt)
+	if anyOK && successRec != nil && isBond {
+		if _, pending := extra["claimedPending"].(bool); pending {
+			go s.backfillClaimedAmount(entry.ID, successRec, amt)
+		}
 	}
 
 	s.mu.Lock()
@@ -427,17 +430,59 @@ func (s *Scheduler) backfillClaimedAmount(entryID string, rec *types.Receipt, am
 	if n == 0 || formatted == "" {
 		return
 	}
-	newAmt := amtLabel + " · " + formatted + " LGNS"
 	s.Logs.Patch(entryID, func(e *logstore.Entry) {
 		if e.Extra == nil {
 			e.Extra = map[string]any{}
 		}
-		e.Extra["amount"] = newAmt
 		e.Extra["claimedLGNS"] = formatted
-		if e.Message != "" && amtLabel != "" {
-			e.Message = strings.Replace(e.Message, amtLabel, newAmt, 1)
+		delete(e.Extra, "claimedPending")
+		includeSuffix := ""
+		if v, ok := e.Extra["includeMs"].(int64); ok {
+			includeSuffix = fmt.Sprintf(" · 上链 %dms", v)
 		}
+		elapsed := int64(0)
+		if v, ok := e.Extra["elapsedMs"].(int64); ok {
+			elapsed = v
+		}
+		amt := amtLabel
+		if a, ok := e.Extra["amount"].(string); ok && a != "" {
+			amt = a
+		}
+		e.Message = formatSuccessMessage(e.Extra, amt, elapsed, includeSuffix)
 	})
+}
+
+func fireAtLabelCST(fireAt time.Time) string {
+	if fireAt.IsZero() {
+		return ""
+	}
+	t := fireAt.In(timesync.CST())
+	return fmt.Sprintf("%d点%02d分", t.Hour(), t.Minute())
+}
+
+func formatSuccessMessage(extra map[string]any, amt string, elapsedMs int64, includeSuffix string) string {
+	title := "成功"
+	if v, ok := extra["claimedLGNS"].(string); ok && v != "" {
+		title = "成功 => " + v + " LGNS"
+	} else if pending, ok := extra["claimedPending"].(bool); ok && pending {
+		title = "成功 正在读取链上数据..."
+	}
+	if bn, ok := extra["blockNumber"].(uint64); ok {
+		idx, _ := extra["txIndex"].(uint64)
+		parts := []string{title, amt}
+		label, _ := extra["fireAtLabel"].(string)
+		if hb, ok := extra["hourBlock"].(uint64); ok && hb > 0 {
+			if label != "" {
+				parts = append(parts, fmt.Sprintf("%s 第 %d 块", label, hb))
+			} else {
+				parts = append(parts, fmt.Sprintf("整点第 %d 块", hb))
+			}
+		}
+		parts = append(parts, fmt.Sprintf("块内第 %d 笔", idx+1), fmt.Sprintf("高度 %d", bn))
+		msg := strings.Join(parts, " · ")
+		return msg + includeSuffix
+	}
+	return fmt.Sprintf("%s · %s · %dms", title, amt, elapsedMs)
 }
 
 // hourBlockOf returns 1-based block ordinal relative to fireAt.
