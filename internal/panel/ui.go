@@ -155,17 +155,18 @@ func RunUI(store *Store, bot *BotManager) {
 			return
 		}
 		lines := bot.Logs()
-		if len(lines) == 0 {
-			logEdit.SetText("（暂无日志）")
-			return
+		text := "（暂无日志）"
+		if len(lines) > 0 {
+			if len(lines) > 120 {
+				lines = lines[len(lines)-120:]
+			}
+			text = strings.Join(lines, "\r\n")
 		}
-		// show last ~120 lines
-		if len(lines) > 120 {
-			lines = lines[len(lines)-120:]
-		}
-		text := strings.Join(lines, "\r\n")
 		if logEdit.Text() != text {
 			logEdit.SetText(text)
+			n := len([]rune(text))
+			logEdit.SetTextSelection(n, n)
+			logEdit.ScrollToCaret()
 		}
 	}
 
