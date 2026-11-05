@@ -591,7 +591,12 @@ function formatTaskRecord(l) {
     let detail = amt || "";
     if (ok && ex.blockNumber != null) {
       const idx = (ex.txIndex != null ? Number(ex.txIndex) + 1 : "—");
-      detail = [amt, `块内第 ${idx} 笔`, `高度 ${ex.blockNumber}`].filter(Boolean).join(" · ");
+      const parts = [amt];
+      if (ex.hourBlock != null && ex.hourBlock !== "") {
+        parts.push(`整点第 ${ex.hourBlock} 块`);
+      }
+      parts.push(`块内第 ${idx} 笔`, `高度 ${ex.blockNumber}`);
+      detail = parts.filter(Boolean).join(" · ");
     } else if (!ok) {
       detail = [amt, l.error || l.message || "失败"].filter(Boolean).join(" · ");
     }

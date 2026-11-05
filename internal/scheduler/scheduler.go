@@ -321,12 +321,20 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 						tt.LastError = "receipt unavailable"
 					}
 				} else {
-					extra["blockNumber"] = rec.BlockNumber.Uint64()
+					receiptAt := time.Now()
+					bn := rec.BlockNumber.Uint64()
+					extra["blockNumber"] = bn
 					extra["txIndex"] = uint64(rec.TransactionIndex)
 					if !sendAt.IsZero() {
-						if includeMs := inclusionMs(ctx, s.RPC, lastRPC, rec.BlockNumber, sendAt); includeMs >= 0 {
-							extra["includeMs"] = includeMs
+						ms := receiptAt.Sub(sendAt).Milliseconds()
+						if ms < 0 {
+							ms = 0
 						}
+						extra["includeMs"] = ms
+					}
+					fireAt := time.Unix(0, fireKey).UTC()
+					if hb := hourBlockOf(ctx, s.RPC, lastRPC, bn, fireAt); hb > 0 {
+						extra["hourBlock"] = hb
 					}
 					if rec.Status == 0 {
 						anyOK = false
@@ -378,7 +386,11 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 		msg = "成功"
 		if bn, ok := extra["blockNumber"].(uint64); ok {
 			idx, _ := extra["txIndex"].(uint64)
-			msg = fmt.Sprintf("成功 · %s · 块内第 %d 笔 · 高度 %d%s", amt, idx+1, bn, includeSuffix)
+			if hb, ok := extra["hourBlock"].(uint64); ok && hb > 0 {
+				msg = fmt.Sprintf("成功 · %s · 整点第 %d 块 · 块内第 %d 笔 · 高度 %d%s", amt, hb, idx+1, bn, includeSuffix)
+			} else {
+				msg = fmt.Sprintf("成功 · %s · 块内第 %d 笔 · 高度 %d%s", amt, idx+1, bn, includeSuffix)
+			}
 		} else {
 			msg = fmt.Sprintf("成功 · %s · %dms", amt, elapsedMs)
 		}
@@ -428,27 +440,44 @@ func (s *Scheduler) backfillClaimedAmount(entryID string, rec *types.Receipt, am
 	})
 }
 
-func inclusionMs(ctx context.Context, rpcMgr *rpc.Manager, rpcID string, blockNum *big.Int, sendAt time.Time) int64 {
-	if rpcMgr == nil || blockNum == nil || sendAt.IsZero() {
-		return -1
+// hourBlockOf returns 1-based block ordinal relative to fireAt.
+// Finds the last block with Time < fireAt (prev), returns bn-prev; 0 if unknown.
+func hourBlockOf(ctx context.Context, rpcMgr *rpc.Manager, rpcID string, bn uint64, fireAt time.Time) uint64 {
+	if rpcMgr == nil || bn == 0 || fireAt.IsZero() {
+		return 0
 	}
 	cli, err := rpcMgr.ClientByID(rpcID)
 	if err != nil {
 		cli, err = rpcMgr.Client()
 		if err != nil {
-			return -1
+			return 0
 		}
 	}
-	hdr, err := cli.HeaderByNumber(ctx, blockNum)
+	fireUnix := uint64(fireAt.Unix())
+	hdr, err := cli.HeaderByNumber(ctx, new(big.Int).SetUint64(bn))
 	if err != nil || hdr == nil {
-		return -1
-	}
-	blockTime := time.Unix(int64(hdr.Time), 0)
-	ms := blockTime.Sub(sendAt).Milliseconds()
-	if ms < 0 {
 		return 0
 	}
-	return ms
+	if hdr.Time < fireUnix {
+		return 0
+	}
+	const maxBack = 180
+	cur := bn
+	for i := 0; i < maxBack; i++ {
+		if cur == 0 {
+			return bn + 1
+		}
+		prevNum := cur - 1
+		prev, err := cli.HeaderByNumber(ctx, new(big.Int).SetUint64(prevNum))
+		if err != nil || prev == nil {
+			return 0
+		}
+		if prev.Time < fireUnix {
+			return bn - prevNum
+		}
+		cur = prevNum
+	}
+	return 0
 }
 
 func (s *Scheduler) maybeRearm(id string, now time.Time) {
