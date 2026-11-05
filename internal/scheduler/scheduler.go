@@ -9,11 +9,14 @@ import (
 	"time"
 
 	"anubisbot/internal/batch"
+	"anubisbot/internal/burnbond"
 	"anubisbot/internal/logstore"
 	"anubisbot/internal/rpc"
 	"anubisbot/internal/settings"
 	"anubisbot/internal/tasks"
 	"anubisbot/internal/timesync"
+
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
 type Scheduler struct {
@@ -288,6 +291,7 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 	lastRTT := s.fanoutRTT[fk]
 	s.mu.Unlock()
 
+	var successRec *types.Receipt
 	live := s.Runner != nil && s.Runner.Mode == "live"
 	if anyOK {
 		tt.LastError = ""
@@ -331,6 +335,7 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 						tt.LastError = "tx reverted on-chain"
 					} else {
 						tt.Status = "success"
+						successRec = rec
 					}
 				}
 				cancel()
@@ -380,11 +385,14 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 	} else if tt.LastError != "" {
 		msg = "失败 · " + tt.LastError + includeSuffix
 	}
-	s.Logs.Add(logstore.Entry{
+	entry := s.Logs.Add(logstore.Entry{
 		TaskID: t.ID, Wallet: t.WalletName, Event: ev,
 		Message: msg, TxHash: lastHash, RPCID: lastRPC, RTTMs: lastRTT,
 		Error: tt.LastError, Extra: extra,
 	})
+	if anyOK && successRec != nil && burnbond.IsBondClaimContract(preset.To) {
+		go s.backfillClaimedAmount(entry.ID, successRec, amt)
+	}
 
 	s.mu.Lock()
 	delete(s.cache, taskID)
@@ -397,6 +405,27 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 	if tt.Schedule != "once" {
 		s.maybeRearm(taskID, s.Syncer.NowChain())
 	}
+}
+
+func (s *Scheduler) backfillClaimedAmount(entryID string, rec *types.Receipt, amtLabel string) {
+	if s.Logs == nil || entryID == "" || rec == nil {
+		return
+	}
+	formatted, _, n := burnbond.SumClaimedLGNS(rec)
+	if n == 0 || formatted == "" {
+		return
+	}
+	newAmt := amtLabel + " · " + formatted + " LGNS"
+	s.Logs.Patch(entryID, func(e *logstore.Entry) {
+		if e.Extra == nil {
+			e.Extra = map[string]any{}
+		}
+		e.Extra["amount"] = newAmt
+		e.Extra["claimedLGNS"] = formatted
+		if e.Message != "" && amtLabel != "" {
+			e.Message = strings.Replace(e.Message, amtLabel, newAmt, 1)
+		}
+	})
 }
 
 func inclusionMs(ctx context.Context, rpcMgr *rpc.Manager, rpcID string, blockNum *big.Int, sendAt time.Time) int64 {

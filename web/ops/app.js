@@ -488,6 +488,37 @@ function formatTaskRecord(l) {
   return { bad: !!l.error, title: l.event, detail: l.message || "" };
 }
 
+function renderTaskLogRows(box, logs) {
+  if (!logs.length) {
+    box.innerHTML = `<div class="desc">暂无广播 / 成败记录</div>`;
+    return;
+  }
+  box.innerHTML = logs.map((l) => {
+    const row = formatTaskRecord(l);
+    const tx = l.txHash
+      ? (String(l.txHash).startsWith("sim-")
+        ? `<span class="addr">${escapeHtml(l.txHash)}</span>`
+        : `<a href="${state.explorer}/tx/${l.txHash}" target="_blank" rel="noreferrer">${escapeHtml(shortAddr(l.txHash))}</a>`)
+      : "";
+    return `<div class="log-item ${row.bad ? "err" : ""}">
+      <div class="t">${new Date(l.at).toLocaleString()}</div>
+      <div>
+        <strong>${escapeHtml(row.title)}</strong>
+        ${row.detail ? `<div>${escapeHtml(row.detail)}</div>` : ""}
+        ${tx}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function resultAmountHasLGNS(logs) {
+  return (logs || []).some((l) => {
+    if (l.event !== "result") return false;
+    const amt = String(l.extra?.amount || l.message || "");
+    return /LGNS/i.test(amt);
+  });
+}
+
 async function openTaskLogs(taskId) {
   const t = state.tasks.find((x) => x.id === taskId);
   const dlg = $("#taskLogsDialog");
@@ -499,35 +530,34 @@ async function openTaskLogs(taskId) {
   if (title) title.textContent = name ? `任务记录 · ${typeLabel} · ${name}` : `任务记录 · ${typeLabel || taskId}`;
   box.innerHTML = `<div class="desc">加载中…</div>`;
   dlg.showModal();
-  try {
+  const gen = (state.taskLogsGen = (state.taskLogsGen || 0) + 1);
+  const stillOpen = () => dlg.open && state.taskLogsGen === gen;
+
+  const fetchAndRender = async () => {
     const data = await api(`/logs?taskId=${encodeURIComponent(taskId)}`);
+    if (!stillOpen()) return null;
     const all = data.logs || [];
     const logs = all.filter((l) => isTaskRecordEvent(l.event));
     markLogsSeen(taskId, logs);
     state.sig.tasks = "";
     renderTasks(true);
-    if (!logs.length) {
-      box.innerHTML = `<div class="desc">暂无广播 / 成败记录</div>`;
-      return;
+    renderTaskLogRows(box, logs);
+    return logs;
+  };
+
+  try {
+    let logs = await fetchAndRender();
+    if (!stillOpen() || !logs) return;
+    // Poll briefly for async claimedLGNS backfill on the same result row.
+    for (let i = 0; i < 5 && stillOpen(); i++) {
+      if (resultAmountHasLGNS(logs)) break;
+      await new Promise((r) => setTimeout(r, 2000));
+      if (!stillOpen()) break;
+      logs = await fetchAndRender();
+      if (!logs) break;
     }
-    box.innerHTML = logs.map((l) => {
-      const row = formatTaskRecord(l);
-      const tx = l.txHash
-        ? (String(l.txHash).startsWith("sim-")
-          ? `<span class="addr">${escapeHtml(l.txHash)}</span>`
-          : `<a href="${state.explorer}/tx/${l.txHash}" target="_blank" rel="noreferrer">${escapeHtml(shortAddr(l.txHash))}</a>`)
-        : "";
-      return `<div class="log-item ${row.bad ? "err" : ""}">
-        <div class="t">${new Date(l.at).toLocaleString()}</div>
-        <div>
-          <strong>${escapeHtml(row.title)}</strong>
-          ${row.detail ? `<div>${escapeHtml(row.detail)}</div>` : ""}
-          ${tx}
-        </div>
-      </div>`;
-    }).join("");
   } catch (err) {
-    box.innerHTML = `<div class="desc">${escapeHtml(err.message)}</div>`;
+    if (stillOpen()) box.innerHTML = `<div class="desc">${escapeHtml(err.message)}</div>`;
   }
 }
 
