@@ -105,10 +105,12 @@ function shortAddr(a) {
   return a.slice(0, 6) + "…" + a.slice(-4);
 }
 
+const COPY_ICON_SVG = `<svg class="addr-copy-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><rect x="5" y="5" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="2" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
+
 function addrCell(address) {
   if (!address) return `<td class="addr-cell mono">—</td>`;
   const full = escapeHtml(address);
-  return `<td class="addr-cell mono" title="${full}"><button type="button" class="addr-link-btn" data-act="open-addr" data-addr="${full}">${escapeHtml(shortAddr(address))}</button><button type="button" class="btn secondary sm addr-copy-btn" data-act="copy-addr" data-addr="${full}">复制</button></td>`;
+  return `<td class="addr-cell mono" title="${full}"><button type="button" class="addr-link-btn" data-act="open-addr" data-addr="${full}">${escapeHtml(shortAddr(address))}</button><button type="button" class="addr-copy-btn" data-act="copy-addr" data-addr="${full}" title="复制" aria-label="复制">${COPY_ICON_SVG}</button></td>`;
 }
 
 async function copyAddrFromBtn(btn) {
@@ -137,9 +139,10 @@ async function copyAddrFromBtn(btn) {
     toast("复制失败", true);
     return;
   }
-  const prev = btn.textContent;
-  btn.textContent = "已复制";
-  setTimeout(() => { btn.textContent = prev; }, 1000);
+  toast("已复制");
+  const prevTitle = btn.getAttribute("title") || "复制";
+  btn.setAttribute("title", "已复制");
+  setTimeout(() => { btn.setAttribute("title", prevTitle); }, 1000);
 }
 
 function fmtCountdown(targetISO) {
