@@ -7,10 +7,14 @@ data/panel.json
 data/secrets.local.json
 data/master.key
 data/logs.jsonl
-anubisbot.exe
-anubisbot
+data/bot.stdout.log
+/anubisbot.exe
+/anubisbot
 *.exe
+*.exe.bak
+*.exe.new
 bin/
+dist/
 .DS_Store
 .idea/
 .vscode/
