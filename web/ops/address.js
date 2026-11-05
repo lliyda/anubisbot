@@ -175,11 +175,13 @@
       return;
     }
     if (btn) {
-      const prev = btn.textContent;
-      btn.textContent = "已复制";
+      const prev = btn.getAttribute("title") || "复制";
+      btn.setAttribute("title", "已复制");
+      btn.setAttribute("aria-label", "已复制");
       btn.disabled = true;
       setTimeout(() => {
-        btn.textContent = prev || "复制";
+        btn.setAttribute("title", prev);
+        btn.setAttribute("aria-label", prev);
         btn.disabled = false;
       }, 1200);
     }
