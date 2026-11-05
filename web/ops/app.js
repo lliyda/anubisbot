@@ -443,6 +443,9 @@ function formatTaskRecord(l) {
     } else if (!ok) {
       detail = [amt, l.error || l.message || "失败"].filter(Boolean).join(" · ");
     }
+    if (ok && ex.elapsedMs != null && ex.elapsedMs !== "") {
+      detail = [detail, `${ex.elapsedMs}ms`].filter(Boolean).join(" · ");
+    }
     return { bad: !ok, title: ok ? "成功" : "失败", detail };
   }
   return { bad: !!l.error, title: l.event, detail: l.message || "" };

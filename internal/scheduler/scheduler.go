@@ -235,6 +235,7 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastH
 	preset, _ := s.Runner.Presets[t.TaskType]
 	amt := batch.AmountLabel(t, preset)
 	extra := map[string]any{"amount": amt, "ok": anyOK}
+	start := time.Unix(0, fireKey)
 
 	if anyOK {
 		tt.Status = "success"
@@ -274,15 +275,22 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastH
 	}
 	_ = s.Tasks.Update(tt)
 
+	now := time.Now()
+	elapsedMs := now.Sub(start).Milliseconds()
+	if elapsedMs < 0 {
+		elapsedMs = 0
+	}
+	extra["elapsedMs"] = elapsedMs
+
 	msg := "失败"
 	ev := "result"
 	if anyOK {
 		msg = "成功"
 		if bn, ok := extra["blockNumber"].(uint64); ok {
 			idx, _ := extra["txIndex"].(uint64)
-			msg = fmt.Sprintf("成功 · %s · 块内第 %d 笔 · 高度 %d", amt, idx+1, bn)
+			msg = fmt.Sprintf("成功 · %s · 块内第 %d 笔 · 高度 %d · %dms", amt, idx+1, bn, elapsedMs)
 		} else {
-			msg = fmt.Sprintf("成功 · %s", amt)
+			msg = fmt.Sprintf("成功 · %s · %dms", amt, elapsedMs)
 		}
 	} else if tt.LastError != "" {
 		msg = "失败 · " + tt.LastError

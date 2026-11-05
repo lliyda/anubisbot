@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"sync"
 
+	"anubisbot/internal/burnbond"
 	"anubisbot/internal/helixchain"
 	"anubisbot/internal/helixfetch"
 	"anubisbot/internal/tokenbal"
@@ -115,6 +116,26 @@ func (s *Server) handleAddress(w http.ResponseWriter, r *http.Request) {
 		out["_longStake"] = snap.LongStake
 		for _, msg := range snap.Errs {
 			errs = append(errs, fetchErr{Source: "helixchain", Message: msg})
+		}
+		mu.Unlock()
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		cli, err := s.RPC.Client()
+		if err != nil {
+			mu.Lock()
+			out["burnBonds"] = nil
+			errs = append(errs, fetchErr{Source: "burnBonds", Message: "rpc unavailable"})
+			mu.Unlock()
+			return
+		}
+		snap := burnbond.Load(ctx, cli, addr)
+		mu.Lock()
+		out["burnBonds"] = snap
+		for _, msg := range snap.Errors {
+			errs = append(errs, fetchErr{Source: "burnBonds", Message: msg})
 		}
 		mu.Unlock()
 	}()

@@ -118,6 +118,73 @@
     </div>`);
   }
 
+  function renderBurnBonds(bb) {
+    if (!bb) return section("可领取", `<p class="sub">暂无数据</p>`);
+    const fixed = bb.fixedPrice || {};
+    const lgns = bb.lgnsBurn || {};
+    const fixedHint = fixed.ok
+      ? `${fixed.depositCount ?? 0} 笔债券`
+      : (fixed.contract ? shortAddr(fixed.contract) : "");
+    const lgnsHint = lgns.ok
+      ? `${lgns.depositCount ?? 0} 笔债券`
+      : (lgns.contract ? shortAddr(lgns.contract) : "");
+    const claims = Array.isArray(bb.claims) ? bb.claims : [];
+    const rows = claims.map((r) => `<tr>
+      <td class="mono">${esc(fmtBeijing(r.at))}</td>
+      <td>${esc(r.label || r.kind || "—")}</td>
+      <td class="mono">${esc(num(r.amount, 6))} LGNS</td>
+      <td>${txLink(r.tx)}</td>
+    </tr>`).join("");
+    return section("可领取", `
+      <div class="addr-metrics">
+        ${metric(fixed.label || "固定定价销毁债券", esc(num(fixed.claimable, 4)), fixedHint)}
+        ${metric(lgns.label || "LGNS 销毁债券", esc(num(lgns.claimable, 4)), lgnsHint)}
+      </div>
+      <h2 style="font-size:14px;margin:16px 0 8px">领取记录</h2>
+      <div class="addr-table-wrap"><table class="addr-table">
+        <thead><tr><th>时间(北京)</th><th>类型</th><th>数量</th><th>交易</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="4">无记录</td></tr>`}</tbody>
+      </table></div>`);
+  }
+
+  async function copyAddress() {
+    const btn = $("#btnAddrCopy");
+    const input = $("#addrQueryInput");
+    const v = (input?.value || "").trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(v)) {
+      alert("请先输入有效地址");
+      return;
+    }
+    let ok = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(v);
+        ok = true;
+      }
+    } catch (_) { /* fallback below */ }
+    if (!ok) {
+      try {
+        input.focus();
+        input.select();
+        ok = document.execCommand("copy");
+        input.setSelectionRange(v.length, v.length);
+      } catch (_) { ok = false; }
+    }
+    if (!ok) {
+      alert("复制失败");
+      return;
+    }
+    if (btn) {
+      const prev = btn.textContent;
+      btn.textContent = "已复制";
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.textContent = prev || "复制";
+        btn.disabled = false;
+      }, 1200);
+    }
+  }
+
   function powerStatus(s) {
     return ({ active: "生效", queued: "排队" })[s] || s || "—";
   }
@@ -407,6 +474,7 @@
     body.innerHTML = [
       errHtml,
       renderBalances(data.balances, data.ailgnsPriceDai),
+      renderBurnBonds(data.burnBonds),
       renderPower(data.power, data.networkActivePower),
       renderTeam(data.community, data.level),
       renderEmission(data.emission, data.claims, data.turbine, data.nft, data.community, data.ailgnsPriceDai),
@@ -492,6 +560,7 @@
       const v = ($("#addrQueryInput")?.value || "").trim();
       if (/^0x[0-9a-fA-F]{40}$/.test(v)) loadAddress(v);
     });
+    $("#btnAddrCopy")?.addEventListener("click", () => { copyAddress().catch(() => {}); });
     $("#addrQueryInput")?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
