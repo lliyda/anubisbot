@@ -55,6 +55,17 @@ body {
   outline: 2px solid rgba(15, 118, 110, 0.35);
   outline-offset: 2px;
 }
+.addr-cell {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.addr-copy-btn {
+  margin-left: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+  vertical-align: middle;
+}
 
 .topbar {
   height: 56px;
