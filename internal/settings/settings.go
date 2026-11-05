@@ -15,7 +15,8 @@ type Settings struct {
 	GasMultiplier    float64 `json:"gasMultiplier"`
 	NtpHost          string  `json:"ntpHost"`
 	NtpIntervalSec   int     `json:"ntpIntervalSec"`
-	Mode             string  `json:"mode"` // sim | live，重启后恢复
+	RpcTimeoutMs     int     `json:"rpcTimeoutMs"` // 广播发送 + 等收据共用
+	Mode             string  `json:"mode"`         // sim | live，重启后恢复
 }
 
 func Defaults() Settings {
@@ -26,6 +27,7 @@ func Defaults() Settings {
 		GasMultiplier:    1.2,
 		NtpHost:          "pool.ntp.org",
 		NtpIntervalSec:   30,
+		RpcTimeoutMs:     12000,
 		Mode:             "sim",
 	}
 }
@@ -76,6 +78,9 @@ func mergeDefaults(in Settings) Settings {
 	if in.NtpIntervalSec >= 5 {
 		d.NtpIntervalSec = in.NtpIntervalSec
 	}
+	if in.RpcTimeoutMs > 0 {
+		d.RpcTimeoutMs = in.RpcTimeoutMs
+	}
 	if in.Mode == "live" || in.Mode == "sim" {
 		d.Mode = in.Mode
 	}
@@ -109,6 +114,9 @@ func (s *Store) Update(patch Settings) (Settings, error) {
 	}
 	if patch.NtpIntervalSec >= 5 {
 		cur.NtpIntervalSec = patch.NtpIntervalSec
+	}
+	if patch.RpcTimeoutMs > 0 {
+		cur.RpcTimeoutMs = patch.RpcTimeoutMs
 	}
 	if patch.Mode == "live" || patch.Mode == "sim" {
 		cur.Mode = patch.Mode

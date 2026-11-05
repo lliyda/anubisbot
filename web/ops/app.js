@@ -9,6 +9,7 @@ const state = {
   activeIds: [],
   rtts: {},
   leads: {},
+  allowByTask: {},
   selectedTaskId: null,
   selectedPresetId: null,
   taskFilter: "",
@@ -532,7 +533,12 @@ function renderTasks(force = false) {
         }记录</button>
         <button type="button" class="btn secondary sm" data-act="run-once">执行一次</button>
         ${preset.needsLgnsApprove
-          ? `<button type="button" class="btn secondary sm" data-act="check-allow" data-allow-state="unknown">授权检测</button>`
+          ? (() => {
+              const as = state.allowByTask[t.id] || "unknown";
+              const cls = as === "ok" ? " allow-ok" : as === "bad" ? " allow-bad" : "";
+              const label = as === "ok" ? "已授权" : as === "bad" ? "未授权" : "授权检测";
+              return `<button type="button" class="btn secondary sm${cls}" data-act="check-allow" data-allow-state="${as}">${label}</button>`;
+            })()
           : ""}
         <button type="button" class="btn secondary sm" data-act="del-task">删除</button>
       </div></td>
@@ -581,6 +587,26 @@ function formatLGNSCommas(v) {
   const [intPart, frac] = s.split(".");
   const withComma = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return frac != null && frac !== "" ? `${withComma}.${frac}` : withComma;
+}
+
+function paintAllowBtn(btn, allowState, taskId) {
+  if (!btn) return;
+  const st = allowState === "ok" || allowState === "bad" ? allowState : "unknown";
+  if (taskId) {
+    if (st === "unknown") delete state.allowByTask[taskId];
+    else state.allowByTask[taskId] = st;
+  }
+  btn.dataset.allowState = st;
+  btn.classList.remove("allow-ok", "allow-bad");
+  if (st === "ok") {
+    btn.classList.add("allow-ok");
+    btn.textContent = "已授权";
+  } else if (st === "bad") {
+    btn.classList.add("allow-bad");
+    btn.textContent = "未授权";
+  } else {
+    btn.textContent = "授权检测";
+  }
 }
 
 function formatTaskRecord(l) {
@@ -750,6 +776,7 @@ function renderWallets(force = false) {
       <td class="mono">${escapeHtml(bal.dai ?? "—")}</td>
       <td class="mono">${escapeHtml(bal.lgns ?? "—")}</td>
       <td class="mono">${escapeHtml(bal.slgns ?? "—")}</td>
+      <td class="mono">${escapeHtml(bal.ailgns ?? "—")}</td>
       <td class="actions"><div class="actions-row">
         <button type="button" class="btn secondary sm" data-act="del-wallet">删除</button>
       </div></td>
@@ -841,21 +868,45 @@ function clearPresetEditor() {
 
 function renderLogs(force = false) {
   const box = $("#logList");
+  if (!box) return;
   const sig = fingerprint(state.logs);
   if (!force && sig === state.sig.logs) return;
   state.sig.logs = sig;
-  box.innerHTML = state.logs.map((l) => `
-    <div class="log-item ${l.error || l.event === "failed" || l.event === "simulate_fail" ? "err" : ""}">
+  if (!state.logs.length) {
+    box.innerHTML = `<div class="empty show">暂无日志</div>`;
+    return;
+  }
+  box.innerHTML = state.logs.map((l) => {
+    const bad = !!(l.error || l.event === "failed" || l.event === "simulate_fail" || (l.event === "result" && l.extra?.ok === false));
+    if (isTaskRecordEvent(l.event)) {
+      const row = formatTaskRecord(l);
+      const tx = l.txHash && !String(l.txHash).startsWith("sim-")
+        ? `<a href="${state.explorer}/tx/${l.txHash}" target="_blank" rel="noreferrer">${escapeHtml(shortAddr(l.txHash))}</a>`
+        : "";
+      return `<div class="log-item ${row.bad || bad ? "err" : ""}">
+        <div class="t">${new Date(l.at).toLocaleString()}</div>
+        <div>
+          <strong>${escapeHtml(row.title)}</strong>
+          ${row.detail ? `<div class="log-msg">${escapeHtml(row.detail)}</div>` : ""}
+          ${tx}
+          ${l.wallet || l.rpcId ? `<span class="log-meta">${escapeHtml([l.wallet, l.rpcId ? `rpc=${l.rpcId}` : ""].filter(Boolean).join(" · "))}</span>` : ""}
+        </div>
+      </div>`;
+    }
+    const meta = [l.taskId, l.wallet].filter(Boolean).map(escapeHtml).join(" · ");
+    const tx = l.txHash && !String(l.txHash).startsWith("sim-")
+      ? `<a href="${state.explorer}/tx/${l.txHash}" target="_blank" rel="noreferrer">${escapeHtml(shortAddr(l.txHash))}</a>`
+      : "";
+    return `<div class="log-item ${bad ? "err" : ""}">
       <div class="t">${new Date(l.at).toLocaleString()}</div>
       <div>
-        <strong>${escapeHtml(l.event)}</strong>
-        ${l.taskId ? ` · ${escapeHtml(l.taskId)}` : ""}
-        ${l.wallet ? ` · ${escapeHtml(l.wallet)}` : ""}
-        <div>${escapeHtml(l.message || l.error || "")}</div>
-        ${l.txHash && !String(l.txHash).startsWith("sim-") ? `<a href="${state.explorer}/tx/${l.txHash}" target="_blank">${escapeHtml(l.txHash)}</a>` : ""}
-        ${l.rpcId ? `<span class="addr">rpc=${escapeHtml(l.rpcId)} rtt=${l.rttMs || 0}ms</span>` : ""}
+        <strong>${escapeHtml(l.event)}</strong>${meta ? ` · ${meta}` : ""}
+        <div class="log-msg">${escapeHtml(l.message || l.error || "")}</div>
+        ${tx}
+        ${l.rpcId ? `<span class="log-meta">rpc=${escapeHtml(l.rpcId)} rtt=${l.rttMs || 0}ms</span>` : ""}
       </div>
-    </div>`).join("") || `<div class="empty show">暂无日志</div>`;
+    </div>`;
+  }).join("");
 }
 
 function fillTypeSelect() {
@@ -986,6 +1037,7 @@ function openSettings(tab = "general") {
   api("/settings").then((st) => {
     const f = $("#settingsForm");
     f.signLeadMs.value = st.signLeadMs;
+    f.rpcTimeoutMs.value = st.rpcTimeoutMs || 12000;
     f.batchConcurrency.value = st.batchConcurrency;
     f.gasMultiplier.value = st.gasMultiplier;
     f.ntpHost.value = st.ntpHost || "pool.ntp.org";
@@ -1573,19 +1625,19 @@ function bind() {
         return;
       } else if (btn.dataset.act === "check-allow") {
         btn.disabled = true;
-        const prev = btn.textContent;
+        const prevState = btn.dataset.allowState || state.allowByTask[id] || "unknown";
+        paintAllowBtn(btn, "unknown", id);
         btn.textContent = "检测中…";
         try {
           const info = await api(`/tasks/${id}/lgns-allowance`);
           if (info.ok) {
-            btn.dataset.allowState = "ok";
-            btn.textContent = "已授权";
+            paintAllowBtn(btn, "ok", id);
             toast("已授权");
           } else {
-            btn.dataset.allowState = "bad";
-            btn.textContent = "未授权";
+            paintAllowBtn(btn, "bad", id);
             const amountLabel = await askApproveConfirm(info.spender);
             if (amountLabel == null) {
+              paintAllowBtn(btn, "bad", id);
               return;
             }
             btn.textContent = "授权中…";
@@ -1594,16 +1646,15 @@ function bind() {
               body: JSON.stringify({ amount: amountLabel }),
             });
             if (res.ok) {
-              btn.dataset.allowState = "ok";
-              btn.textContent = "已授权";
+              paintAllowBtn(btn, "ok", id);
               toast(res.sim ? "sim：已记录 would_approve" : `授权已发送 ${res.txHash || ""}`);
             } else {
-              btn.textContent = "未授权";
+              paintAllowBtn(btn, "bad", id);
               toast(res.error || "授权失败", true);
             }
           }
         } catch (err) {
-          btn.textContent = prev || "授权检测";
+          paintAllowBtn(btn, prevState, id);
           throw err;
         } finally {
           btn.disabled = false;
@@ -1731,6 +1782,7 @@ function bind() {
         method: "PUT",
         body: JSON.stringify({
           signLeadMs: Number(fd.get("signLeadMs")),
+          rpcTimeoutMs: Number(fd.get("rpcTimeoutMs")) || 12000,
           batchConcurrency: Number(fd.get("batchConcurrency")),
           gasMultiplier: Number(fd.get("gasMultiplier")),
           ntpHost: String(fd.get("ntpHost") || "").trim() || "pool.ntp.org",
