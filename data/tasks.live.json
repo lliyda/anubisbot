@@ -1,1 +1,20 @@
-{"tasks":[]}
+{
+  "tasks": [
+    {
+      "id": "8e5e71da",
+      "name": "固定价销毁债券",
+      "walletId": "w52057db3",
+      "walletName": "鑫鑫",
+      "walletAddress": "0xC29F96861b1e5f00cac071e6a1139ef5CefCDc34",
+      "taskType": "fixed_price",
+      "schedule": "hourly",
+      "fireAt": "2026-11-06T01:00:00+08:00",
+      "enabled": true,
+      "params": {
+        "gasLimit": 500000
+      },
+      "status": "armed",
+      "lastRunAt": "2026-11-06T00:06:49.524655903+08:00"
+    }
+  ]
+}

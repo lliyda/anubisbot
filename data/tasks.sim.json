@@ -2,17 +2,16 @@
   "tasks": [
     {
       "id": "1e8ffa2c",
-      "name": "固定定价销毁债券",
+      "name": "固定价销毁债券",
       "walletId": "w1",
       "walletName": "主号",
       "walletAddress": "0x0000000000000000000000000000000000000001",
       "taskType": "fixed_price",
       "schedule": "hourly",
-      "fireAt": "2026-11-05T23:00:00+08:00",
+      "fireAt": "2026-11-06T01:00:00+08:00",
       "enabled": true,
       "params": {
-        "claimArg": 1,
-        "gasLimit": 240000
+        "gasLimit": 500000
       },
       "status": "armed",
       "lastRunAt": "2026-11-05T21:59:59.960889559+08:00",
@@ -28,11 +27,10 @@
       "walletAddress": "0x0000000000000000000000000000000000000001",
       "taskType": "lgns_burn",
       "schedule": "hourly",
-      "fireAt": "2026-11-05T23:00:00+08:00",
+      "fireAt": "2026-11-06T01:00:00+08:00",
       "enabled": true,
       "params": {
-        "claimArg": 1,
-        "gasLimit": 240000
+        "gasLimit": 500000
       },
       "status": "armed",
       "lastRunAt": "2026-11-05T21:59:59.960889559+08:00",

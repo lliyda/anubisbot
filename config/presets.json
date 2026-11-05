@@ -1,33 +1,24 @@
 {
   "fixed_price": {
-    "label": "固定定价销毁债券",
-    "description": "1 LGNS = 1 DAI 那张。每个整点 5 万 LGNS 额度，前 1~2 个区块就被领完。",
+    "label": "固定价销毁债券",
+    "description": "整点领取全部可领 LGNS（claimAll），对应页面「领取全部」。合约 0x3f40…E71F。",
     "icon": "diamond",
     "to": "0x3f403751975e1EB06d95901f7FF246513444E71F",
     "abi": [
       {
         "type": "function",
-        "name": "claim",
+        "name": "claimAll",
         "stateMutability": "nonpayable",
-        "inputs": [
-          {
-            "name": "arg",
-            "type": "uint256"
-          }
-        ],
+        "inputs": [],
         "outputs": []
       }
     ],
-    "function": "claim",
-    "method": "claim",
-    "selector": "379607f5",
+    "function": "claimAll",
+    "method": "claimAll",
+    "selector": "4e71d92d",
     "defaultSchedule": "hourly",
     "defaultParams": {
-      "args": [
-        "1"
-      ],
-      "claimArg": 1,
-      "gasLimit": 240000
+      "gasLimit": 500000
     },
     "needsLgnsApprove": false
   },
@@ -65,33 +56,24 @@
   },
   "lgns_burn": {
     "label": "LGNS 销毁债券",
-    "description": "每个整点 5 万 LGNS 额度，第 1 个区块就被领完。",
+    "description": "整点领取全部可领 LGNS（claimAll），对应页面「领取全部」。合约 0x11b1…7c69。",
     "icon": "fire",
     "to": "0x11b10C9827c5B7071E96fcAa143B4e6E86b17c69",
     "abi": [
       {
         "type": "function",
-        "name": "claim",
+        "name": "claimAll",
         "stateMutability": "nonpayable",
-        "inputs": [
-          {
-            "name": "arg",
-            "type": "uint256"
-          }
-        ],
+        "inputs": [],
         "outputs": []
       }
     ],
-    "function": "claim",
-    "method": "claim",
-    "selector": "379607f5",
+    "function": "claimAll",
+    "method": "claimAll",
+    "selector": "4e71d92d",
     "defaultSchedule": "hourly",
     "defaultParams": {
-      "args": [
-        "1"
-      ],
-      "claimArg": 1,
-      "gasLimit": 240000
+      "gasLimit": 500000
     },
     "needsLgnsApprove": false
   }

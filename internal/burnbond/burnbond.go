@@ -28,6 +28,7 @@ const (
 	lgnsDecimals = 9
 	defaultLimit = 50
 	lookback     = 500_000 // blocks
+	maxLogRange  = 5_000   // rpc.anubispace.org eth_getLogs cap
 )
 
 var claimedTopic = crypto.Keccak256Hash([]byte("Claimed(address,uint256,uint256)"))
@@ -65,7 +66,7 @@ type bondMeta struct {
 }
 
 var bonds = []bondMeta{
-	{kind: "fixed_price", label: "固定定价销毁债券", addr: FixedPrice},
+	{kind: "fixed_price", label: "固定价销毁债券", addr: FixedPrice},
 	{kind: "lgns_burn", label: "LGNS 销毁债券", addr: LgnsBurn},
 }
 
@@ -108,11 +109,10 @@ func Load(ctx context.Context, cli *ethclient.Client, addr string) Snapshot {
 		claims, err := loadClaims(ctx, cli, addr, defaultLimit)
 		mu.Lock()
 		defer mu.Unlock()
+		out.Claims = claims
 		if err != nil {
 			out.Errors = append(out.Errors, "claims: "+err.Error())
-			return
 		}
-		out.Claims = claims
 	}()
 	wg.Wait()
 	return out
@@ -178,54 +178,65 @@ func loadClaims(ctx context.Context, cli *ethclient.Client, user string, limit i
 	userTopic := common.BytesToHash(common.LeftPadBytes(userAddr.Bytes(), 32))
 
 	var all []Claim
+	var chunkErrs []string
+	okChunks := 0
 	blockTs := map[uint64]time.Time{}
 
 	for _, b := range bonds {
-		q := ethereum.FilterQuery{
-			FromBlock: new(big.Int).SetUint64(from),
-			ToBlock:   new(big.Int).SetUint64(latest),
-			Addresses: []common.Address{common.HexToAddress(b.addr)},
-			Topics:    [][]common.Hash{{claimedTopic}, {userTopic}},
-		}
-		logs, err := cli.FilterLogs(ctx, q)
-		if err != nil {
-			// shrink window and retry once
-			if latest > 80_000 {
-				q.FromBlock = new(big.Int).SetUint64(latest - 80_000)
-				logs, err = cli.FilterLogs(ctx, q)
+		addr := common.HexToAddress(b.addr)
+		for end := latest; ; {
+			var start uint64
+			if end+1 > maxLogRange {
+				start = end - maxLogRange + 1
 			}
+			if start < from {
+				start = from
+			}
+			q := ethereum.FilterQuery{
+				FromBlock: new(big.Int).SetUint64(start),
+				ToBlock:   new(big.Int).SetUint64(end),
+				Addresses: []common.Address{addr},
+				Topics:    [][]common.Hash{{claimedTopic}, {userTopic}},
+			}
+			logs, err := cli.FilterLogs(ctx, q)
 			if err != nil {
-				return all, fmt.Errorf("%s: %w", b.kind, err)
-			}
-		}
-		for _, lg := range logs {
-			amount := big.NewInt(0)
-			if len(lg.Data) >= 32 {
-				amount = new(big.Int).SetBytes(lg.Data[len(lg.Data)-32:])
-			}
-			idx := uint64(0)
-			if len(lg.Topics) >= 3 {
-				idx = new(big.Int).SetBytes(lg.Topics[2].Bytes()).Uint64()
-			}
-			at := blockTs[lg.BlockNumber]
-			if at.IsZero() {
-				hdr, herr := cli.HeaderByNumber(ctx, new(big.Int).SetUint64(lg.BlockNumber))
-				if herr == nil && hdr != nil {
-					at = time.Unix(int64(hdr.Time), 0).UTC()
-					blockTs[lg.BlockNumber] = at
-				} else {
-					at = time.Now().UTC()
+				chunkErrs = append(chunkErrs, fmt.Sprintf("%s@%d-%d: %v", b.kind, start, end, err))
+			} else {
+				okChunks++
+				for _, lg := range logs {
+					amount := big.NewInt(0)
+					if len(lg.Data) >= 32 {
+						amount = new(big.Int).SetBytes(lg.Data[len(lg.Data)-32:])
+					}
+					idx := uint64(0)
+					if len(lg.Topics) >= 3 {
+						idx = new(big.Int).SetBytes(lg.Topics[2].Bytes()).Uint64()
+					}
+					at := blockTs[lg.BlockNumber]
+					if at.IsZero() {
+						hdr, herr := cli.HeaderByNumber(ctx, new(big.Int).SetUint64(lg.BlockNumber))
+						if herr == nil && hdr != nil {
+							at = time.Unix(int64(hdr.Time), 0).UTC()
+							blockTs[lg.BlockNumber] = at
+						} else {
+							at = time.Now().UTC()
+						}
+					}
+					all = append(all, Claim{
+						At:     at.Format(time.RFC3339),
+						Kind:   b.kind,
+						Label:  b.label,
+						Amount: tokenbal.Format(amount, lgnsDecimals),
+						Index:  idx,
+						TxHash: lg.TxHash.Hex(),
+						Block:  lg.BlockNumber,
+					})
 				}
 			}
-			all = append(all, Claim{
-				At:     at.Format(time.RFC3339),
-				Kind:   b.kind,
-				Label:  b.label,
-				Amount: tokenbal.Format(amount, lgnsDecimals),
-				Index:  idx,
-				TxHash: lg.TxHash.Hex(),
-				Block:  lg.BlockNumber,
-			})
+			if start <= from {
+				break
+			}
+			end = start - 1
 		}
 	}
 
@@ -237,6 +248,10 @@ func loadClaims(ctx context.Context, cli *ethclient.Client, user string, limit i
 	})
 	if len(all) > limit {
 		all = all[:limit]
+	}
+	// Only hard-fail when every chunk failed (avoids burnBonds banner on partial RPC blips).
+	if okChunks == 0 && len(chunkErrs) > 0 {
+		return all, fmt.Errorf("%s", strings.Join(chunkErrs, "; "))
 	}
 	return all, nil
 }

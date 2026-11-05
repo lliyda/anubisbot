@@ -55,6 +55,14 @@ func DeriveSelector(m abi.Method) string {
 }
 
 func resolveArgStrings(preset config.Preset, params tasks.TaskParams) []string {
+	name := strings.TrimSpace(preset.Function)
+	if name == "" {
+		name = strings.TrimSpace(preset.Method)
+	}
+	// Zero-arg methods (claimAll): ignore leftover task args/claimArg from older configs.
+	if name == "claimAll" {
+		return []string{}
+	}
 	if len(params.Args) > 0 {
 		return params.Args
 	}
@@ -64,10 +72,6 @@ func resolveArgStrings(preset config.Preset, params tasks.TaskParams) []string {
 		return out
 	}
 	// legacy claim / burn fields
-	name := strings.TrimSpace(preset.Function)
-	if name == "" {
-		name = strings.TrimSpace(preset.Method)
-	}
 	switch name {
 	case "burnForPower":
 		amt := params.BurnAmount
@@ -78,7 +82,7 @@ func resolveArgStrings(preset config.Preset, params tasks.TaskParams) []string {
 			amt = "500000000000"
 		}
 		return []string{amt}
-	default:
+	case "claim":
 		arg := params.ClaimArg
 		if arg == 0 {
 			arg = preset.DefaultParams.ClaimArg
@@ -87,6 +91,8 @@ func resolveArgStrings(preset config.Preset, params tasks.TaskParams) []string {
 			arg = 1
 		}
 		return []string{strconv.FormatInt(arg, 10)}
+	default:
+		return []string{}
 	}
 }
 
@@ -135,6 +141,9 @@ func PackCalldata(preset config.Preset, params tasks.TaskParams) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
+	if len(method.Inputs) == 0 {
+		return parsed.Pack(method.Name)
+	}
 	rawArgs := resolveArgStrings(preset, params)
 	if len(rawArgs) != len(method.Inputs) {
 		return nil, fmt.Errorf("args: want %d got %d for %s", len(method.Inputs), len(rawArgs), method.Name)
@@ -161,6 +170,8 @@ func NormalizePresetFromABI(p *config.Preset) error {
 		switch strings.TrimSpace(p.Method) {
 		case "claim":
 			p.ABI = json.RawMessage(`[{"type":"function","name":"claim","stateMutability":"nonpayable","inputs":[{"name":"arg","type":"uint256"}],"outputs":[]}]`)
+		case "claimAll":
+			p.ABI = json.RawMessage(`[{"type":"function","name":"claimAll","stateMutability":"nonpayable","inputs":[],"outputs":[]}]`)
 		case "burnForPower":
 			p.ABI = json.RawMessage(`[{"type":"function","name":"burnForPower","stateMutability":"nonpayable","inputs":[{"name":"amount","type":"uint256"}],"outputs":[]}]`)
 		default:
@@ -198,6 +209,9 @@ func NormalizePresetFromABI(p *config.Preset) error {
 				p.DefaultParams.ClaimArg = 1
 			}
 			p.DefaultParams.Args = []string{strconv.FormatInt(p.DefaultParams.ClaimArg, 10)}
+		case "claimAll":
+			p.DefaultParams.Args = nil
+			p.DefaultParams.ClaimArg = 0
 		default:
 			if len(method.Inputs) > 0 {
 				return fmt.Errorf("defaultParams.args required (%d inputs)", len(method.Inputs))
