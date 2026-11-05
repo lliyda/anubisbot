@@ -1,9 +1,11 @@
 package panel
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,10 +20,10 @@ import (
 type BotManager struct {
 	cfg *Store
 
-	mu     sync.Mutex
-	cmd    *exec.Cmd
-	logs   []string
-	logMu  sync.Mutex
+	mu    sync.Mutex
+	cmd   *exec.Cmd
+	logs  []string
+	logMu sync.Mutex
 }
 
 func NewBotManager(cfg *Store) *BotManager {
@@ -29,12 +31,16 @@ func NewBotManager(cfg *Store) *BotManager {
 }
 
 func (m *BotManager) AppendLog(line string) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return
+	}
 	m.logMu.Lock()
 	defer m.logMu.Unlock()
 	ts := time.Now().Format("15:04:05")
 	m.logs = append(m.logs, ts+" "+line)
-	if len(m.logs) > 200 {
-		m.logs = m.logs[len(m.logs)-200:]
+	if len(m.logs) > 400 {
+		m.logs = m.logs[len(m.logs)-400:]
 	}
 }
 
@@ -52,7 +58,6 @@ func (m *BotManager) Running() bool {
 	if m.cmd == nil || m.cmd.Process == nil {
 		return false
 	}
-	// cheap liveness: process still exists (Windows: signal 0 not portable; check health instead too)
 	return m.cmd.ProcessState == nil || !m.cmd.ProcessState.Exited()
 }
 
@@ -93,18 +98,42 @@ func (m *BotManager) Start() error {
 	}
 	cmd := exec.Command(exe)
 	cmd.Dir = m.cfg.Root()
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	pr, pw := io.Pipe()
+	writers := []io.Writer{pw}
+	var logFile *os.File
+	logPath := filepath.Join(m.cfg.Root(), "data", "bot.stdout.log")
+	_ = os.MkdirAll(filepath.Dir(logPath), 0o755)
+	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
+		logFile = f
+		writers = append([]io.Writer{f}, pw)
+	}
+	cmd.Stdout = io.MultiWriter(writers...)
+	cmd.Stderr = cmd.Stdout
+
 	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		cmd.SysProcAttr = &syscall.SysProcAttr{
+			HideWindow:    true,
+			CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+		}
 	}
 	if err := cmd.Start(); err != nil {
+		_ = pw.Close()
+		if logFile != nil {
+			_ = logFile.Close()
+		}
 		return err
 	}
 	m.cmd = cmd
 	m.AppendLog("started " + filepath.Base(exe) + " pid=" + fmt.Sprint(cmd.Process.Pid))
+
+	go m.consumeStdout(pr)
 	go func() {
 		_ = cmd.Wait()
+		_ = pw.Close()
+		if logFile != nil {
+			_ = logFile.Close()
+		}
 		m.AppendLog("bot exited")
 		m.mu.Lock()
 		if m.cmd == cmd {
@@ -115,17 +144,24 @@ func (m *BotManager) Start() error {
 	return nil
 }
 
+func (m *BotManager) consumeStdout(r io.Reader) {
+	sc := bufio.NewScanner(r)
+	buf := make([]byte, 0, 64*1024)
+	sc.Buffer(buf, 1024*1024)
+	for sc.Scan() {
+		m.AppendLog(sc.Text())
+	}
+}
+
 func (m *BotManager) Stop() error {
 	m.mu.Lock()
 	cmd := m.cmd
 	m.mu.Unlock()
 
-	// Prefer graceful: if we own the process, kill it; also kill by listening port via taskkill fallback
 	if cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 		m.AppendLog("killed owned bot process")
 	}
-	// Also stop any orphan anubisbot on bot port by image name (best-effort Windows)
 	if runtime.GOOS == "windows" {
 		exeName := filepath.Base(m.cfg.Get().BotExe)
 		_ = exec.Command("taskkill", "/F", "/IM", exeName).Run()
@@ -165,7 +201,8 @@ func OpenBrowser(url string) error {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", url)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 	case "darwin":
 		cmd = exec.Command("open", url)
 	default:

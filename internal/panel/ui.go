@@ -3,19 +3,48 @@
 package panel
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/png"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"anubisbot/internal/panel/assets"
 	"anubisbot/internal/version"
 
 	"github.com/lxn/walk"
 	. "github.com/lxn/walk/declarative"
 )
+
+func loadAppIcon() *walk.Icon {
+	// Prefer real .ico for NotifyIcon (most reliable on Windows tray).
+	icoPath := filepath.Join(os.TempDir(), "anubisbot-panel-tray.ico")
+	if len(assets.IconICO) > 0 {
+		if err := os.WriteFile(icoPath, assets.IconICO, 0o644); err == nil {
+			if ic, err := walk.NewIconFromFile(icoPath); err == nil {
+				return ic
+			}
+		}
+	}
+	if len(assets.IconPNG) > 0 {
+		img, _, err := image.Decode(bytes.NewReader(assets.IconPNG))
+		if err == nil {
+			if ic, err := walk.NewIconFromImage(img); err == nil {
+				return ic
+			}
+		}
+	}
+	if ic, err := walk.NewIconFromSysDLL("shell32", 13); err == nil {
+		return ic
+	}
+	return nil
+}
 
 // RunUI starts the native tray + control window. Blocks until the panel exits.
 // Does not stop the bot process on quit.
@@ -26,22 +55,74 @@ func RunUI(store *Store, bot *BotManager) {
 			_, _ = c.Write([]byte("show\n"))
 			_ = c.Close()
 		}
-		walk.MsgBox(nil, "Anubisbot 面板",
-			"面板已在运行。\n请看任务栏右下角托盘图标（可能在 ^ 隐藏图标里）。\n左键打开控制窗。",
-			walk.MsgBoxIconInformation)
+		// Already running: nudge existing window, no popup.
 		return
 	}
 	defer lockLn.Close()
 
 	var (
-		mw        *walk.MainWindow
-		ni        *walk.NotifyIcon
-		statusLbl *walk.Label
-		infoEdit  *walk.TextEdit
-		busyMu    sync.Mutex
-		busy      bool
-		showMu    sync.Mutex
+		mw          *walk.MainWindow
+		ni          *walk.NotifyIcon
+		statusLbl   *walk.Label
+		updateLbl   *walk.Label
+		logEdit     *walk.TextEdit
+		verCombo    *walk.ComboBox
+		installBtn  *walk.PushButton
+		progressBar *walk.ProgressBar
+		progressLbl *walk.Label
+		busyMu      sync.Mutex
+		busy        bool
+		showMu      sync.Mutex
+		pending     *CheckResult
+		metaByLabel = map[string]VersionMeta{}
+		labelOrder  []string
 	)
+
+	// Progress widgets always occupy space (no show/hide layout jumps).
+	resetProgress := func() {
+		if progressBar != nil {
+			progressBar.SetRange(0, 100)
+			progressBar.SetValue(0)
+		}
+		if progressLbl != nil {
+			_ = progressLbl.SetText(" ")
+		}
+	}
+
+	setProgress := func(phase string, current, total int64, message string) {
+		if progressBar == nil {
+			return
+		}
+		if progressLbl != nil && message != "" {
+			_ = progressLbl.SetText(message)
+		}
+		progressBar.SetRange(0, 100)
+		if phase == "download" && total > 0 {
+			pct := int(current * 100 / total)
+			if pct < 0 {
+				pct = 0
+			}
+			if pct > 100 {
+				pct = 100
+			}
+			progressBar.SetValue(pct)
+			return
+		}
+		switch phase {
+		case "extract":
+			progressBar.SetValue(70)
+		case "replace":
+			progressBar.SetValue(85)
+		case "start":
+			progressBar.SetValue(95)
+		case "done":
+			progressBar.SetValue(100)
+		default:
+			if progressBar.Value() < 5 {
+				progressBar.SetValue(5)
+			}
+		}
+	}
 
 	setBusy := func(v bool) {
 		busyMu.Lock()
@@ -54,27 +135,123 @@ func RunUI(store *Store, bot *BotManager) {
 		return busy
 	}
 
-	setInfo := func(s string) {
-		if infoEdit != nil {
-			infoEdit.SetText(s)
+	setUpdateStatus := func(s string) {
+		if updateLbl == nil {
+			return
 		}
+		// Keep one short line so label height/width stay stable.
+		s = strings.ReplaceAll(s, "\r\n", " ")
+		s = strings.ReplaceAll(s, "\n", " ")
+		runes := []rune(s)
+		if len(runes) > 72 {
+			s = string(runes[:72]) + "…"
+		}
+		_ = updateLbl.SetText(s)
+	}
+	refreshLogs := func() {
+		if logEdit == nil {
+			return
+		}
+		lines := bot.Logs()
+		if len(lines) == 0 {
+			logEdit.SetText("（暂无日志）")
+			return
+		}
+		// show last ~120 lines
+		if len(lines) > 120 {
+			lines = lines[len(lines)-120:]
+		}
+		text := strings.Join(lines, "\r\n")
+		if logEdit.Text() != text {
+			logEdit.SetText(text)
+		}
+	}
+
+	selectedMeta := func() (VersionMeta, bool) {
+		if verCombo == nil {
+			return VersionMeta{}, false
+		}
+		label := strings.TrimSpace(verCombo.Text())
+		meta, ok := metaByLabel[label]
+		return meta, ok
+	}
+
+	syncInstallButton := func() {
+		if installBtn == nil {
+			return
+		}
+		// Keep fixed label so button width never jumps.
+		_ = installBtn.SetText("安装选中版本")
+		_, ok := selectedMeta()
+		if !ok || pending == nil {
+			installBtn.SetEnabled(false)
+			return
+		}
+		installBtn.SetEnabled(!isBusy())
+	}
+
+	clearVersionPicker := func() {
+		pending = nil
+		metaByLabel = map[string]VersionMeta{}
+		labelOrder = nil
+		if verCombo != nil {
+			_ = verCombo.SetModel([]string{})
+			_ = verCombo.SetText("")
+		}
+		syncInstallButton()
+	}
+
+	populateVersionPicker := func(result *CheckResult) {
+		pending = result
+		metaByLabel = map[string]VersionMeta{}
+		labelOrder = nil
+		local := result.Local
+		for _, meta := range result.Versions {
+			label := FormatVersionLabel(meta, local)
+			if _, exists := metaByLabel[label]; exists {
+				continue
+			}
+			metaByLabel[label] = meta
+			labelOrder = append(labelOrder, label)
+		}
+		if verCombo != nil {
+			_ = verCombo.SetModel(labelOrder)
+		}
+		defaultLabel := ""
+		if len(labelOrder) > 0 {
+			defaultLabel = labelOrder[0]
+		}
+		latest := result.Latest.Version
+		for _, label := range labelOrder {
+			meta := metaByLabel[label]
+			if latest != "" && meta.Version == latest && versionGT(meta.Version, local) {
+				defaultLabel = label
+				break
+			}
+		}
+		if verCombo != nil && defaultLabel != "" {
+			_ = verCombo.SetText(defaultLabel)
+		}
+		syncInstallButton()
 	}
 
 	refreshStatus := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		h, err := bot.FetchHealth(ctx)
-		text := "● 离线 / 不可达"
+		text := "● 离线 · 服务不可达"
 		if err == nil {
 			ver, _ := h["version"].(string)
 			mode, _ := h["mode"].(string)
-			text = fmt.Sprintf("● 运行中  v%s  mode=%v  offset=%vms", ver, mode, h["offsetMs"])
+			off := h["offsetMs"]
+			text = fmt.Sprintf("● 运行中 · v%s · %v · 时钟偏移 %vms", ver, mode, off)
 		}
 		if mw != nil {
 			mw.Synchronize(func() {
 				if statusLbl != nil {
 					_ = statusLbl.SetText(text)
 				}
+				refreshLogs()
 			})
 		}
 	}
@@ -84,15 +261,21 @@ func RunUI(store *Store, bot *BotManager) {
 			return
 		}
 		setBusy(true)
+		if mw != nil {
+			mw.Synchronize(syncInstallButton)
+		}
 		go func() {
 			err := fn()
 			setBusy(false)
 			if mw != nil {
 				mw.Synchronize(func() {
+					syncInstallButton()
 					if err != nil {
-						walk.MsgBox(mw, "错误", err.Error(), walk.MsgBoxIconError)
+						setUpdateStatus("操作失败：" + err.Error())
+						bot.AppendLog("❌ " + err.Error())
 					} else if okMsg != "" {
-						walk.MsgBox(mw, "完成", okMsg, walk.MsgBoxIconInformation)
+						setUpdateStatus(okMsg)
+						bot.AppendLog("✅ " + okMsg)
 					}
 					refreshStatus()
 				})
@@ -103,10 +286,12 @@ func RunUI(store *Store, bot *BotManager) {
 	openOps := func() {
 		url := strings.TrimRight(store.Get().BotHTTP, "/") + "/"
 		if err := OpenBrowser(url); err != nil {
-			walk.MsgBox(mw, "错误", err.Error(), walk.MsgBoxIconError)
+			setUpdateStatus("打开网页失败：" + err.Error())
+			bot.AppendLog("❌ 打开网页: " + err.Error())
 			return
 		}
 		bot.AppendLog("opened " + url)
+		setUpdateStatus("已打开运维页")
 		refreshStatus()
 	}
 
@@ -127,13 +312,16 @@ func RunUI(store *Store, bot *BotManager) {
 			assetEdit *walk.LineEdit
 			httpEdit  *walk.LineEdit
 			exeEdit   *walk.LineEdit
+			tokenEdit *walk.LineEdit
+			cfgHint   *walk.Label
 			acceptPB  *walk.PushButton
 		)
+		tokHint := cfg.GithubToken
 		_, err := Dialog{
 			AssignTo:      &dlg,
 			Title:         "面板配置",
-			MinSize:       Size{Width: 420, Height: 220},
-			Size:          Size{Width: 460, Height: 240},
+			MinSize:       Size{Width: 440, Height: 300},
+			Size:          Size{Width: 480, Height: 320},
 			Layout:        VBox{},
 			DefaultButton: &acceptPB,
 			Children: []Widget{
@@ -148,24 +336,37 @@ func RunUI(store *Store, bot *BotManager) {
 						LineEdit{AssignTo: &httpEdit, Text: cfg.BotHTTP},
 						Label{Text: "Bot exe"},
 						LineEdit{AssignTo: &exeEdit, Text: cfg.BotExe},
+						Label{Text: "GitHub Token"},
+						LineEdit{AssignTo: &tokenEdit, Text: tokHint, PasswordMode: true},
 					},
 				},
+				Label{Text: "Token 可留空：自动用 GH_TOKEN / gh auth token"},
+				Label{AssignTo: &cfgHint, Text: ""},
 				Composite{
 					Layout: HBox{},
 					Children: []Widget{
 						HSpacer{},
 						PushButton{AssignTo: &acceptPB, Text: "保存", OnClicked: func() {
+							tok := strings.TrimSpace(tokenEdit.Text())
+							if tok == "" {
+								tok = "-" // clear stored token; runtime still uses gh/env
+							}
 							_, err := store.Update(Config{
-								GithubRepo: strings.TrimSpace(repoEdit.Text()),
-								AssetName:  strings.TrimSpace(assetEdit.Text()),
-								BotHTTP:    strings.TrimSpace(httpEdit.Text()),
-								BotExe:     strings.TrimSpace(exeEdit.Text()),
+								GithubRepo:  strings.TrimSpace(repoEdit.Text()),
+								AssetName:   strings.TrimSpace(assetEdit.Text()),
+								BotHTTP:     strings.TrimSpace(httpEdit.Text()),
+								BotExe:      strings.TrimSpace(exeEdit.Text()),
+								GithubToken: tok,
 							})
 							if err != nil {
-								walk.MsgBox(dlg, "错误", err.Error(), walk.MsgBoxIconError)
+								if cfgHint != nil {
+									_ = cfgHint.SetText("保存失败：" + err.Error())
+								}
+								bot.AppendLog("❌ 配置: " + err.Error())
 								return
 							}
 							bot.AppendLog("config saved")
+							setUpdateStatus("配置已保存")
 							dlg.Accept()
 						}},
 						PushButton{Text: "取消", OnClicked: func() { dlg.Cancel() }},
@@ -174,8 +375,134 @@ func RunUI(store *Store, bot *BotManager) {
 			},
 		}.Run(mw)
 		if err != nil {
-			walk.MsgBox(mw, "错误", err.Error(), walk.MsgBoxIconError)
+			setUpdateStatus("打开配置失败：" + err.Error())
+			bot.AppendLog("❌ 配置窗口: " + err.Error())
 		}
+	}
+
+	onCheckUpdateDone := func(result *CheckResult, err error) {
+		setBusy(false)
+		if err != nil || result == nil || !result.OK {
+			msg := "检查失败"
+			if err != nil {
+				msg = err.Error()
+			} else if result != nil && result.Error != "" {
+				msg = result.Error
+			}
+			setUpdateStatus("检查失败：" + msg)
+			clearVersionPicker()
+			bot.AppendLog("检查更新失败: " + msg)
+			return
+		}
+		localV := result.Local
+		remoteV := result.Latest.Version
+		plat := result.Platform
+		if result.HasUpdate {
+			setUpdateStatus(fmt.Sprintf(
+				"远端最新 %s（当前 %s · %s）。可从下方选择任意历史版本升级或降级；安装将短暂停止服务。",
+				remoteV, localV, plat,
+			))
+		} else {
+			setUpdateStatus(fmt.Sprintf(
+				"已是最新版本。本地 %s（%s）· 远端 %s。如需回退，可从下方选择历史版本安装。",
+				localV, plat, remoteV,
+			))
+		}
+		populateVersionPicker(result)
+		bot.AppendLog(fmt.Sprintf("检查更新完成: 本地 %s / 远端 %s", localV, remoteV))
+		refreshStatus()
+	}
+
+	doCheckUpdate := func() {
+		if isBusy() {
+			return
+		}
+		setBusy(true)
+		clearVersionPicker()
+		setUpdateStatus("正在检查更新…")
+		bot.AppendLog("检查更新…")
+		syncInstallButton()
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			result, err := bot.CheckOTA(ctx)
+			if mw != nil {
+				mw.Synchronize(func() { onCheckUpdateDone(result, err) })
+			}
+		}()
+	}
+
+	onApplyDone := func(remoteV string, info *ReleaseInfo, err error) {
+		setBusy(false)
+		syncInstallButton()
+		refreshStatus()
+		InvalidateOTACache()
+		resetProgress()
+		if err != nil {
+			msg := err.Error()
+			setUpdateStatus("安装失败：" + msg)
+			bot.AppendLog("❌ 安装 " + remoteV + ": " + msg)
+			refreshLogs()
+			return
+		}
+		tag := remoteV
+		if info != nil && info.TagName != "" {
+			tag = info.TagName
+		}
+		msg := "已安装 " + tag + "。服务已重启；如需面板自身更新请替换 anubisbot-panel.exe.new 后重启面板。"
+		setUpdateStatus(msg)
+		bot.AppendLog("✅ " + msg)
+		if info != nil && info.Body != "" {
+			bot.AppendLog("Release: " + info.Body)
+		}
+		clearVersionPicker()
+		refreshLogs()
+	}
+
+	doInstallSelected := func() {
+		if isBusy() {
+			return
+		}
+		meta, ok := selectedMeta()
+		if !ok || pending == nil {
+			setUpdateStatus("请先检查更新并选择目标版本")
+			bot.AppendLog("安装：尚未选择版本")
+			return
+		}
+		localV := pending.Local
+		remoteV := meta.Version
+		var verb string
+		switch {
+		case remoteV == normalizeTag(localV):
+			verb = "重新安装"
+		case versionGT(remoteV, localV):
+			verb = "升级"
+		default:
+			verb = "降级"
+		}
+		setBusy(true)
+		syncInstallButton()
+		setProgress("download", 0, 0, "准备下载…")
+		setUpdateStatus(fmt.Sprintf("正在下载并%s到 %s…", verb, remoteV))
+		bot.AppendLog(fmt.Sprintf("开始%s到 %s…", verb, remoteV))
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			info, err := bot.ApplyOTA(ctx, remoteV, func(phase string, current, total int64, message string) {
+				if mw == nil {
+					return
+				}
+				mw.Synchronize(func() {
+					setProgress(phase, current, total, message)
+					if message != "" {
+						setUpdateStatus(message)
+					}
+				})
+			})
+			if mw != nil {
+				mw.Synchronize(func() { onApplyDone(remoteV, info, err) })
+			}
+		}()
 	}
 
 	go func() {
@@ -195,103 +522,165 @@ func RunUI(store *Store, bot *BotManager) {
 		}
 	}()
 
+	pad := Margins{Left: 12, Top: 10, Right: 12, Bottom: 10}
+	// Fixed client size: Walk auto-grows the form when label/combo MinSize jumps
+	// after status / OTA text updates; lock size so the window stops jumping.
+	winSize := Size{Width: 580, Height: 480}
 	if err := (MainWindow{
 		AssignTo: &mw,
-		Title:    "Anubisbot 面板  " + version.String(),
-		MinSize:  Size{Width: 380, Height: 320},
-		Size:     Size{Width: 400, Height: 360},
-		Layout:   VBox{Margins: Margins{Left: 12, Top: 12, Right: 12, Bottom: 12}, Spacing: 10},
+		Title:    "Anubisbot 面板 — " + version.String(),
+		MinSize:  winSize,
+		MaxSize:  winSize,
+		Size:     winSize,
+		Layout:   VBox{Margins: Margins{Left: 14, Top: 12, Right: 14, Bottom: 12}, Spacing: 10},
 		Children: []Widget{
-			Label{AssignTo: &statusLbl, Text: "状态检测中…"},
 			Composite{
-				Layout: HBox{Spacing: 6},
+				Layout: HBox{Spacing: 8},
 				Children: []Widget{
-					PushButton{Text: "打开网页", OnClicked: openOps},
-					PushButton{Text: "启动", OnClicked: func() {
-						runAsync(func() error { return bot.Start() }, "服务已启动")
-					}},
-					PushButton{Text: "停止", OnClicked: func() {
-						runAsync(func() error { return bot.Stop() }, "服务已停止")
-					}},
-					PushButton{Text: "重启", OnClicked: func() {
-						runAsync(func() error { return bot.Restart() }, "服务已重启")
-					}},
-					PushButton{Text: "刷新", OnClicked: func() { go refreshStatus() }},
-				},
-			},
-			Composite{
-				Layout: HBox{Spacing: 6},
-				Children: []Widget{
-					PushButton{Text: "检查更新", OnClicked: func() {
-						if isBusy() {
-							return
-						}
-						setBusy(true)
-						go func() {
-							ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-							defer cancel()
-							info, err := bot.CheckOTA(ctx)
-							setBusy(false)
-							mw.Synchronize(func() {
-								if err != nil {
-									setInfo(err.Error())
-									walk.MsgBox(mw, "OTA", err.Error(), walk.MsgBoxIconError)
-								} else {
-									b, _ := json.MarshalIndent(info, "", "  ")
-									setInfo(string(b))
-									msg := "已是最新 " + info.Current
-									if info.Update {
-										msg = "发现更新 " + info.TagName
-									}
-									walk.MsgBox(mw, "OTA", msg, walk.MsgBoxIconInformation)
-								}
-								refreshStatus()
-							})
-						}()
-					}},
-					PushButton{Text: "应用更新", OnClicked: func() {
-						if walk.MsgBox(mw, "OTA", "将下载 Release、停止服务并替换 anubisbot.exe，继续？", walk.MsgBoxYesNo|walk.MsgBoxIconQuestion) != walk.DlgCmdYes {
-							return
-						}
-						runAsync(func() error {
-							ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-							defer cancel()
-							info, err := bot.ApplyOTA(ctx)
-							if info != nil {
-								b, _ := json.MarshalIndent(info, "", "  ")
-								mw.Synchronize(func() { setInfo(string(b)) })
-							}
-							return err
-						}, "更新完成")
-					}},
+					Label{
+						Text: "Anubisbot 控制台",
+						Font: Font{Family: "Segoe UI", PointSize: 13, Bold: true},
+					},
+					Label{
+						Text: "面板 " + version.String(),
+						Font: Font{Family: "Segoe UI", PointSize: 9},
+					},
 					HSpacer{},
-					PushButton{Text: "配置…", OnClicked: openConfig},
+					PushButton{Text: "配置…", MinSize: Size{Width: 76}, MaxSize: Size{Width: 76}, OnClicked: openConfig},
 				},
 			},
-			TextEdit{AssignTo: &infoEdit, ReadOnly: true, VScroll: true, Text: "尚未检查更新", MinSize: Size{Height: 180}},
+			GroupBox{
+				Title:  "服务",
+				Layout: VBox{Margins: pad, Spacing: 10},
+				Children: []Widget{
+					Label{
+						AssignTo: &statusLbl,
+						Text:     "状态检测中…",
+						MaxSize:  Size{Width: 520, Height: 22},
+					},
+					Composite{
+						Layout: HBox{Spacing: 8},
+						Children: []Widget{
+							PushButton{Text: "打开网页", MinSize: Size{Width: 84}, MaxSize: Size{Width: 84}, OnClicked: openOps},
+							PushButton{Text: "启动", MinSize: Size{Width: 68}, MaxSize: Size{Width: 68}, OnClicked: func() {
+								runAsync(func() error { return bot.Start() }, "服务已启动")
+							}},
+							PushButton{Text: "停止", MinSize: Size{Width: 68}, MaxSize: Size{Width: 68}, OnClicked: func() {
+								runAsync(func() error { return bot.Stop() }, "服务已停止")
+							}},
+							PushButton{Text: "重启", MinSize: Size{Width: 68}, MaxSize: Size{Width: 68}, OnClicked: func() {
+								runAsync(func() error { return bot.Restart() }, "服务已重启")
+							}},
+							PushButton{Text: "刷新", MinSize: Size{Width: 68}, MaxSize: Size{Width: 68}, OnClicked: func() { go refreshStatus() }},
+							HSpacer{},
+						},
+					},
+				},
+			},
+			GroupBox{
+				Title:         "软件更新",
+				Layout:        VBox{Margins: pad, Spacing: 10},
+				StretchFactor: 1,
+				Children: []Widget{
+					Composite{
+						Layout: HBox{Spacing: 10},
+						Children: []Widget{
+							Label{
+								AssignTo:      &updateLbl,
+								Text:          "点击「检查更新」查询版本；可选历史版本升级或降级，不会自动安装。",
+								StretchFactor: 1,
+								MaxSize:       Size{Width: 420, Height: 40},
+							},
+							PushButton{Text: "检查更新", MinSize: Size{Width: 92}, MaxSize: Size{Width: 92}, OnClicked: doCheckUpdate},
+						},
+					},
+					Composite{
+						Layout: HBox{Spacing: 8},
+						Children: []Widget{
+							Label{Text: "目标版本", MinSize: Size{Width: 56}, MaxSize: Size{Width: 56}},
+							ComboBox{
+								AssignTo:              &verCombo,
+								Editable:              false,
+								StretchFactor:         1,
+								MinSize:               Size{Width: 280},
+								OnCurrentIndexChanged: func() { syncInstallButton() },
+							},
+							PushButton{
+								AssignTo:  &installBtn,
+								Text:      "安装选中版本",
+								MinSize:   Size{Width: 112},
+								MaxSize:   Size{Width: 112},
+								Enabled:   false,
+								OnClicked: doInstallSelected,
+							},
+						},
+					},
+					ProgressBar{
+						AssignTo:           &progressBar,
+						MinSize:            Size{Height: 18},
+						MaxValue:           100,
+						AlwaysConsumeSpace: true,
+					},
+					Label{
+						AssignTo:           &progressLbl,
+						Text:               " ",
+						MinSize:            Size{Height: 18},
+						MaxSize:            Size{Height: 18},
+						AlwaysConsumeSpace: true,
+					},
+					Label{Text: "运行日志", Font: Font{Family: "Segoe UI", PointSize: 9}},
+					TextEdit{
+						AssignTo:      &logEdit,
+						ReadOnly:      true,
+						VScroll:       true,
+						HScroll:       true,
+						Text:          "（暂无日志）",
+						MinSize:       Size{Height: 140},
+						StretchFactor: 1,
+					},
+				},
+			},
 		},
 	}.Create()); err != nil {
 		panic(err)
 	}
+	_ = mw.SetMinMaxSize(walk.Size{Width: winSize.Width, Height: winSize.Height}, walk.Size{Width: winSize.Width, Height: winSize.Height})
+	_ = mw.SetSize(walk.Size{Width: winSize.Width, Height: winSize.Height})
+	// Walk may still bump size when layout MinSize changes; pin it back.
+	preferred := walk.Size{Width: winSize.Width, Height: winSize.Height}
+	var pinning bool
+	mw.SizeChanged().Attach(func() {
+		if pinning || mw == nil {
+			return
+		}
+		cur := mw.Size()
+		if cur.Width == preferred.Width && cur.Height == preferred.Height {
+			return
+		}
+		pinning = true
+		_ = mw.SetSize(preferred)
+		pinning = false
+	})
 
 	mw.Closing().Attach(func(canceled *bool, reason walk.CloseReason) {
 		*canceled = true
 		mw.Hide()
 	})
 
-	icon, err := walk.NewIconFromResourceId(2)
-	if err != nil {
-		icon, err = walk.NewIconFromFile("anubisbot-panel.exe")
-	}
-	if err != nil {
-		icon, _ = walk.Resources.Icon("3")
+	icon := loadAppIcon()
+	if icon != nil {
+		_ = mw.SetIcon(icon)
 	}
 	ni, err = walk.NewNotifyIcon(mw)
 	if err != nil {
 		panic(err)
 	}
 	if icon != nil {
-		_ = ni.SetIcon(icon)
+		if err := ni.SetIcon(icon); err != nil {
+			bot.AppendLog("tray icon: " + err.Error())
+		}
+	} else {
+		bot.AppendLog("tray icon: missing")
 	}
 	_ = ni.SetToolTip("Anubisbot 面板 " + version.String())
 	_ = ni.SetVisible(true)
@@ -308,6 +697,7 @@ func RunUI(store *Store, bot *BotManager) {
 	addTray("重启服务", func() { runAsync(func() error { return bot.Restart() }, "") })
 	ni.ContextMenu().Actions().Add(walk.NewSeparatorAction())
 	addTray("打开控制窗", showWindow)
+	addTray("检查更新", doCheckUpdate)
 	addTray("配置…", openConfig)
 	ni.ContextMenu().Actions().Add(walk.NewSeparatorAction())
 	addTray("退出面板", func() {
@@ -328,6 +718,34 @@ func RunUI(store *Store, bot *BotManager) {
 		for range t.C {
 			refreshStatus()
 		}
+	}()
+
+	// Silent check like akgo: notify only, never auto-install.
+	go func() {
+		time.Sleep(3 * time.Second)
+		if isBusy() {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		result, err := bot.CheckOTA(ctx)
+		if err != nil || result == nil || !result.OK {
+			return
+		}
+		if mw == nil {
+			return
+		}
+		mw.Synchronize(func() {
+			localV := result.Local
+			if result.HasUpdate {
+				remoteV := result.Latest.Version
+				setUpdateStatus(fmt.Sprintf(
+					"发现新版本 %s（当前 %s）。点击「检查更新」查看并安装；不会自动安装。",
+					remoteV, localV,
+				))
+				bot.AppendLog(fmt.Sprintf("发现更新: %s → %s", localV, remoteV))
+			}
+		})
 	}()
 
 	mw.Show()

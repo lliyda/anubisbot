@@ -3,6 +3,7 @@ package panel
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -185,7 +186,15 @@ func (s *Server) handleOTACheck(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleOTAApply(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
-	info, err := s.Bot.ApplyOTA(ctx)
+	target := strings.TrimSpace(r.URL.Query().Get("version"))
+	if target == "" && r.Body != nil {
+		var body struct {
+			Version string `json:"version"`
+		}
+		_ = json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body)
+		target = strings.TrimSpace(body.Version)
+	}
+	info, err := s.Bot.ApplyOTA(ctx, target, nil)
 	if err != nil {
 		writeJSON(w, 400, map[string]any{"error": err.Error(), "release": info})
 		return
