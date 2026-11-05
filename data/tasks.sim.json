@@ -1,0 +1,61 @@
+{
+  "tasks": [
+    {
+      "id": "1e8ffa2c",
+      "name": "固定定价销毁债券",
+      "walletId": "w1",
+      "walletName": "主号",
+      "walletAddress": "0x0000000000000000000000000000000000000001",
+      "taskType": "fixed_price",
+      "schedule": "hourly",
+      "fireAt": "2026-11-05T23:00:00+08:00",
+      "enabled": true,
+      "params": {
+        "claimArg": 1,
+        "gasLimit": 240000
+      },
+      "status": "armed",
+      "lastRunAt": "2026-11-05T21:59:59.960889559+08:00",
+      "lastTxHash": "sim-1e8ffa2c-rpc2",
+      "lastRpcId": "rpc2",
+      "lastRttMs": 72
+    },
+    {
+      "id": "78996bbc",
+      "name": "LGNS 销毁债券",
+      "walletId": "w1",
+      "walletName": "主号",
+      "walletAddress": "0x0000000000000000000000000000000000000001",
+      "taskType": "lgns_burn",
+      "schedule": "hourly",
+      "fireAt": "2026-11-05T23:00:00+08:00",
+      "enabled": true,
+      "params": {
+        "claimArg": 1,
+        "gasLimit": 240000
+      },
+      "status": "armed",
+      "lastRunAt": "2026-11-05T21:59:59.960889559+08:00",
+      "lastTxHash": "sim-78996bbc-rpc2",
+      "lastRpcId": "rpc2",
+      "lastRttMs": 68
+    },
+    {
+      "id": "35ec6f61",
+      "name": "AI 算力机器人（Helix）",
+      "walletId": "w1",
+      "walletName": "主号",
+      "walletAddress": "0x0000000000000000000000000000000000000001",
+      "taskType": "helix",
+      "schedule": "daily_1159_cst",
+      "fireAt": "2026-11-06T11:59:00.2+08:00",
+      "enabled": true,
+      "params": {
+        "burnAmount": "1",
+        "gasLimit": 675000
+      },
+      "status": "armed",
+      "lastRunAt": null
+    }
+  ]
+}

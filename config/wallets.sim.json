@@ -1,0 +1,25 @@
+{
+  "wallets": [
+    {
+      "id": "w1",
+      "name": "主号",
+      "address": "0x0000000000000000000000000000000000000001",
+      "source": "privateKey",
+      "privateKeyEnv": "WALLET_W1_KEY"
+    },
+    {
+      "id": "w2",
+      "name": "批量2",
+      "address": "0x0000000000000000000000000000000000000002",
+      "source": "privateKey",
+      "privateKeyEnv": "WALLET_W2_KEY",
+      "path": "m/44'/60'/0'/0/1"
+    },
+    {
+      "id": "demo-a783",
+      "name": "演示",
+      "address": "0xA783b85794425FA4F7c50c3e1FAaaa166C13FCb9",
+      "source": "watch"
+    }
+  ]
+}
