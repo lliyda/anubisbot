@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"anubisbot/internal/burnbond"
 	"anubisbot/internal/helixchain"
@@ -94,20 +96,46 @@ func (s *Server) handleAddressBurnClaims(w http.ResponseWriter, r *http.Request)
 		writeErr(w, 400, "invalid address")
 		return
 	}
-	ctx := r.Context()
-	out := map[string]any{"address": addr, "claims": []any{}}
+	limit := 10
+	if v := strings.TrimSpace(r.URL.Query().Get("limit")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			limit = n
+		}
+	}
+	beforeBlock := uint64(0)
+	if v := strings.TrimSpace(r.URL.Query().Get("beforeBlock")); v != "" {
+		if n, err := strconv.ParseUint(v, 10, 64); err == nil {
+			beforeBlock = n
+		}
+	}
+	forceRPC := r.URL.Query().Get("forceRpc") == "1" || r.URL.Query().Get("forceRpc") == "true"
+
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+
+	out := map[string]any{
+		"address":         addr,
+		"claims":          []any{},
+		"source":          "",
+		"nextBeforeBlock": uint64(0),
+	}
 	var errs []fetchErr
 
-	cli, err := s.RPC.Client()
-	if err != nil {
-		errs = append(errs, fetchErr{Source: "burnClaims", Message: "rpc unavailable"})
-		out["errors"] = errs
-		writeJSON(w, 200, out)
-		return
+	cli, _ := s.RPC.Client()
+	page := burnbond.LoadClaims(ctx, cli, addr, limit, beforeBlock, forceRPC)
+	if page.Claims == nil {
+		page.Claims = []burnbond.Claim{}
 	}
-	claims, claimErrs := burnbond.LoadClaims(ctx, cli, addr, 50)
-	out["claims"] = claims
-	for _, msg := range claimErrs {
+	out["claims"] = page.Claims
+	out["source"] = page.Source
+	out["nextBeforeBlock"] = page.NextBefore
+	// Homepage from count: allow "show more" even when nextBefore is 0.
+	if page.Source == "count" && !forceRPC {
+		out["hasMore"] = true
+	} else {
+		out["hasMore"] = page.NextBefore > 0
+	}
+	for _, msg := range page.Errors {
 		errs = append(errs, fetchErr{Source: "burnClaims", Message: msg})
 	}
 	out["errors"] = errs
