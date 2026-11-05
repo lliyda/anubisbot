@@ -56,13 +56,15 @@ body {
   outline-offset: 2px;
 }
 td.addr-cell {
-  display: flex;
-  align-items: center;
-  gap: 4px;
   white-space: nowrap;
   vertical-align: middle;
   overflow: hidden;
   text-overflow: clip;
+}
+.addr-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 #addrHoverTip {
   position: fixed;
@@ -76,7 +78,9 @@ td.addr-cell {
   font-weight: 400;
   line-height: 1.35;
   white-space: nowrap;
-  pointer-events: none;
+  pointer-events: auto;
+  user-select: text;
+  cursor: text;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
 }
 .addr-copy-btn {
@@ -452,7 +456,19 @@ td.addr-cell {
   50% { transform: scale(1.35); opacity: 0.55; }
 }
 
-.actions { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.actions-row,
+div.actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+}
+td.actions {
+  display: table-cell;
+  vertical-align: middle;
+  overflow: visible;
+  text-overflow: clip;
+}
 .btn-rel { position: relative; }
 .btn-dot {
   position: absolute; top: -2px; right: -2px;

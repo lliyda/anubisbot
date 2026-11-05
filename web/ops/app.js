@@ -110,7 +110,17 @@ const COPY_ICON_SVG = `<svg class="addr-copy-icon" viewBox="0 0 24 24" width="16
 function addrCell(address) {
   if (!address) return `<td class="addr-cell mono">—</td>`;
   const full = escapeHtml(address);
-  return `<td class="addr-cell mono"><button type="button" class="addr-link-btn" data-act="open-addr" data-addr="${full}" data-full="${full}" aria-label="${full}">${escapeHtml(shortAddr(address))}</button><button type="button" class="addr-copy-btn" data-act="copy-addr" data-addr="${full}" title="复制" aria-label="复制">${COPY_ICON_SVG}</button></td>`;
+  return `<td class="addr-cell mono"><span class="addr-inline"><button type="button" class="addr-link-btn" data-act="open-addr" data-addr="${full}" data-full="${full}" aria-label="${full}">${escapeHtml(shortAddr(address))}</button><button type="button" class="addr-copy-btn" data-act="copy-addr" data-addr="${full}" title="复制" aria-label="复制">${COPY_ICON_SVG}</button></span></td>`;
+}
+
+let addrHoverHideTimer = 0;
+let addrHoverAnchor = null;
+
+function clearAddrHoverHideTimer() {
+  if (addrHoverHideTimer) {
+    clearTimeout(addrHoverHideTimer);
+    addrHoverHideTimer = 0;
+  }
 }
 
 function getAddrHoverTip() {
@@ -121,10 +131,26 @@ function getAddrHoverTip() {
     tip.hidden = true;
     document.body.appendChild(tip);
   }
+  if (!tip.dataset.bound) {
+    tip.dataset.bound = "1";
+    tip.addEventListener("mouseenter", () => {
+      clearAddrHoverHideTimer();
+    });
+    tip.addEventListener("mouseleave", (e) => {
+      const to = e.relatedTarget;
+      if (to && addrHoverAnchor && addrHoverAnchor.contains(to)) return;
+      if (to && tip.contains(to)) return;
+      scheduleHideAddrHoverTip(200);
+    });
+    tip.addEventListener("mousedown", (e) => e.stopPropagation());
+    tip.addEventListener("click", (e) => e.stopPropagation());
+  }
   return tip;
 }
 
 function hideAddrHoverTip() {
+  clearAddrHoverHideTimer();
+  addrHoverAnchor = null;
   const tip = document.getElementById("addrHoverTip");
   if (tip) {
     tip.hidden = true;
@@ -133,30 +159,40 @@ function hideAddrHoverTip() {
   }
 }
 
+function scheduleHideAddrHoverTip(ms) {
+  clearAddrHoverHideTimer();
+  addrHoverHideTimer = setTimeout(() => {
+    addrHoverHideTimer = 0;
+    hideAddrHoverTip();
+  }, ms);
+}
+
 function placeAddrHoverTip(anchor) {
   const full = (anchor?.dataset?.full || "").trim();
   if (!full || !anchor) {
     hideAddrHoverTip();
     return;
   }
+  clearAddrHoverHideTimer();
+  addrHoverAnchor = anchor;
   const tip = getAddrHoverTip();
   tip.textContent = full;
   tip.hidden = false;
   tip.dataset.anchor = "1";
   const r = anchor.getBoundingClientRect();
   const pad = 6;
-  // Measure after visible
   const tw = tip.offsetWidth;
   const th = tip.offsetHeight;
   let left = r.left;
-  let top = r.bottom + pad;
-  if (top + th > window.innerHeight - 8) {
-    top = r.top - th - pad;
-  }
+  let top = r.top - th - pad;
+  if (top < 8) top = r.bottom + pad;
   if (left + tw > window.innerWidth - 8) {
     left = Math.max(8, window.innerWidth - tw - 8);
   }
   if (left < 8) left = 8;
+  if (top + th > window.innerHeight - 8) {
+    top = Math.max(8, window.innerHeight - th - 8);
+  }
   if (top < 8) top = 8;
   tip.style.left = `${Math.round(left)}px`;
   tip.style.top = `${Math.round(top)}px`;
@@ -166,6 +202,7 @@ function bindAddrHoverTip() {
   if (document.documentElement.dataset.addrTipBound) return;
   document.documentElement.dataset.addrTipBound = "1";
   const match = (t) => t?.closest?.(".addr-link-btn[data-full]");
+  const isTip = (t) => t?.closest?.("#addrHoverTip");
   document.addEventListener("mouseover", (e) => {
     const btn = match(e.target);
     if (!btn) return;
@@ -176,7 +213,8 @@ function bindAddrHoverTip() {
     if (!btn) return;
     const to = e.relatedTarget;
     if (to && btn.contains(to)) return;
-    hideAddrHoverTip();
+    if (to && isTip(to)) return;
+    scheduleHideAddrHoverTip(200);
   });
   document.addEventListener("focusin", (e) => {
     const btn = match(e.target);
@@ -184,7 +222,10 @@ function bindAddrHoverTip() {
   });
   document.addEventListener("focusout", (e) => {
     const btn = match(e.target);
-    if (btn) hideAddrHoverTip();
+    if (!btn) return;
+    const to = e.relatedTarget;
+    if (to && isTip(to)) return;
+    scheduleHideAddrHoverTip(200);
   });
   window.addEventListener("scroll", hideAddrHoverTip, true);
   window.addEventListener("resize", hideAddrHoverTip);
@@ -485,7 +526,7 @@ function renderTasks(force = false) {
           : (!t.enabled ? "—" : escapeHtml(fmtFireAt(t.fireAt)))
       }</td>
       <td class="col-status"><span class="status">${statusDot}${statusLabel(t.status)}</span></td>
-      <td class="actions">
+      <td class="actions"><div class="actions-row">
         <button type="button" class="btn secondary sm btn-rel" data-act="logs">${
           hasUnreadLogs(t.id) ? '<i class="btn-dot"></i>' : ""
         }记录</button>
@@ -494,7 +535,7 @@ function renderTasks(force = false) {
           ? `<button type="button" class="btn secondary sm" data-act="check-allow" data-allow-state="unknown">授权检测</button>`
           : ""}
         <button type="button" class="btn secondary sm" data-act="del-task">删除</button>
-      </td>
+      </div></td>
     </tr>`;
   }).join("");
 }
@@ -684,9 +725,9 @@ function renderWallets(force = false) {
       <td class="mono">${escapeHtml(bal.dai ?? "—")}</td>
       <td class="mono">${escapeHtml(bal.lgns ?? "—")}</td>
       <td class="mono">${escapeHtml(bal.slgns ?? "—")}</td>
-      <td class="actions">
+      <td class="actions"><div class="actions-row">
         <button type="button" class="btn secondary sm" data-act="del-wallet">删除</button>
-      </td>
+      </div></td>
     </tr>`;
   }).join("");
 }
