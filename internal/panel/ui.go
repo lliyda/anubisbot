@@ -64,7 +64,7 @@ func RunUI(store *Store, bot *BotManager) {
 		mw          *walk.MainWindow
 		ni          *walk.NotifyIcon
 		statusLbl   *walk.Label
-		updateLbl   *walk.Label
+		updateLbl   *walk.TextLabel
 		logEdit     *walk.TextEdit
 		verCombo    *walk.ComboBox
 		installBtn  *walk.PushButton
@@ -78,14 +78,15 @@ func RunUI(store *Store, bot *BotManager) {
 		labelOrder  []string
 	)
 
-	// Progress widgets always occupy space (no show/hide layout jumps).
 	resetProgress := func() {
 		if progressBar != nil {
 			progressBar.SetRange(0, 100)
 			progressBar.SetValue(0)
+			progressBar.SetVisible(false)
 		}
 		if progressLbl != nil {
-			_ = progressLbl.SetText(" ")
+			_ = progressLbl.SetText("")
+			progressLbl.SetVisible(false)
 		}
 	}
 
@@ -93,8 +94,16 @@ func RunUI(store *Store, bot *BotManager) {
 		if progressBar == nil {
 			return
 		}
-		if progressLbl != nil && message != "" {
-			_ = progressLbl.SetText(message)
+		if !progressBar.Visible() {
+			progressBar.SetVisible(true)
+		}
+		if progressLbl != nil {
+			if !progressLbl.Visible() {
+				progressLbl.SetVisible(true)
+			}
+			if message != "" {
+				_ = progressLbl.SetText(message)
+			}
 		}
 		progressBar.SetRange(0, 100)
 		if phase == "download" && total > 0 {
@@ -139,14 +148,7 @@ func RunUI(store *Store, bot *BotManager) {
 		if updateLbl == nil {
 			return
 		}
-		// Keep one short line so label height/width stay stable.
-		s = strings.ReplaceAll(s, "\r\n", " ")
-		s = strings.ReplaceAll(s, "\n", " ")
-		runes := []rune(s)
-		if len(runes) > 72 {
-			s = string(runes[:72]) + "…"
-		}
-		_ = updateLbl.SetText(s)
+		_ = updateLbl.SetText(strings.TrimSpace(s))
 	}
 	refreshLogs := func() {
 		if logEdit == nil {
@@ -415,6 +417,7 @@ func RunUI(store *Store, bot *BotManager) {
 			return
 		}
 		setBusy(true)
+		resetProgress()
 		clearVersionPicker()
 		setUpdateStatus("正在检查更新…")
 		bot.AppendLog("检查更新…")
@@ -519,56 +522,56 @@ func RunUI(store *Store, bot *BotManager) {
 		}
 	}()
 
-	pad := Margins{Left: 12, Top: 10, Right: 12, Bottom: 10}
+	pad := Margins{Left: 8, Top: 6, Right: 8, Bottom: 6}
 	// Fixed client size: Walk auto-grows the form when label/combo MinSize jumps
 	// after status / OTA text updates; lock size so the window stops jumping.
-	winSize := Size{Width: 580, Height: 480}
+	winSize := Size{Width: 580, Height: 440}
 	if err := (MainWindow{
 		AssignTo: &mw,
 		Title:    "Anubisbot 面板 — " + version.String(),
 		MinSize:  winSize,
 		MaxSize:  winSize,
 		Size:     winSize,
-		Layout:   VBox{Margins: Margins{Left: 14, Top: 12, Right: 14, Bottom: 12}, Spacing: 10},
+		Layout:   VBox{Margins: Margins{Left: 10, Top: 8, Right: 10, Bottom: 8}, Spacing: 6},
 		Children: []Widget{
 			Composite{
-				Layout: HBox{Spacing: 8},
+				Layout: HBox{Spacing: 6},
 				Children: []Widget{
 					Label{
 						Text: "Anubisbot 控制台",
-						Font: Font{Family: "Segoe UI", PointSize: 13, Bold: true},
+						Font: Font{Family: "Segoe UI", PointSize: 12, Bold: true},
 					},
 					Label{
 						Text: "面板 " + version.String(),
 						Font: Font{Family: "Segoe UI", PointSize: 9},
 					},
 					HSpacer{},
-					PushButton{Text: "配置…", MinSize: Size{Width: 76}, MaxSize: Size{Width: 76}, OnClicked: openConfig},
+					PushButton{Text: "配置…", MinSize: Size{Width: 72}, MaxSize: Size{Width: 72}, OnClicked: openConfig},
 				},
 			},
 			GroupBox{
 				Title:  "服务",
-				Layout: VBox{Margins: pad, Spacing: 10},
+				Layout: VBox{Margins: pad, Spacing: 6},
 				Children: []Widget{
 					Label{
 						AssignTo: &statusLbl,
 						Text:     "状态检测中…",
-						MaxSize:  Size{Width: 520, Height: 22},
+						MaxSize:  Size{Width: 520, Height: 20},
 					},
 					Composite{
-						Layout: HBox{Spacing: 8},
+						Layout: HBox{Spacing: 6},
 						Children: []Widget{
-							PushButton{Text: "打开网页", MinSize: Size{Width: 84}, MaxSize: Size{Width: 84}, OnClicked: openOps},
-							PushButton{Text: "启动", MinSize: Size{Width: 68}, MaxSize: Size{Width: 68}, OnClicked: func() {
+							PushButton{Text: "打开网页", MinSize: Size{Width: 80}, MaxSize: Size{Width: 80}, OnClicked: openOps},
+							PushButton{Text: "启动", MinSize: Size{Width: 64}, MaxSize: Size{Width: 64}, OnClicked: func() {
 								runAsync(func() error { return bot.Start() }, "服务已启动")
 							}},
-							PushButton{Text: "停止", MinSize: Size{Width: 68}, MaxSize: Size{Width: 68}, OnClicked: func() {
+							PushButton{Text: "停止", MinSize: Size{Width: 64}, MaxSize: Size{Width: 64}, OnClicked: func() {
 								runAsync(func() error { return bot.Stop() }, "服务已停止")
 							}},
-							PushButton{Text: "重启", MinSize: Size{Width: 68}, MaxSize: Size{Width: 68}, OnClicked: func() {
+							PushButton{Text: "重启", MinSize: Size{Width: 64}, MaxSize: Size{Width: 64}, OnClicked: func() {
 								runAsync(func() error { return bot.Restart() }, "服务已重启")
 							}},
-							PushButton{Text: "刷新", MinSize: Size{Width: 68}, MaxSize: Size{Width: 68}, OnClicked: func() { go refreshStatus() }},
+							PushButton{Text: "刷新", MinSize: Size{Width: 64}, MaxSize: Size{Width: 64}, OnClicked: func() { go refreshStatus() }},
 							HSpacer{},
 						},
 					},
@@ -576,37 +579,38 @@ func RunUI(store *Store, bot *BotManager) {
 			},
 			GroupBox{
 				Title:         "软件更新",
-				Layout:        VBox{Margins: pad, Spacing: 10},
+				Layout:        VBox{Margins: pad, Spacing: 6},
 				StretchFactor: 1,
 				Children: []Widget{
 					Composite{
-						Layout: HBox{Spacing: 10},
+						Layout: HBox{Spacing: 8, Alignment: AlignHNearVNear},
 						Children: []Widget{
-							Label{
+							TextLabel{
 								AssignTo:      &updateLbl,
 								Text:          "点击「检查更新」查询版本；可选历史版本升级或降级，不会自动安装。",
 								StretchFactor: 1,
-								MaxSize:       Size{Width: 420, Height: 40},
+								MinSize:       Size{Width: 360, Height: 36},
+								MaxSize:       Size{Height: 40},
 							},
-							PushButton{Text: "检查更新", MinSize: Size{Width: 92}, MaxSize: Size{Width: 92}, OnClicked: doCheckUpdate},
+							PushButton{Text: "检查更新", MinSize: Size{Width: 88, Height: 28}, MaxSize: Size{Width: 88}, OnClicked: doCheckUpdate},
 						},
 					},
 					Composite{
-						Layout: HBox{Spacing: 8},
+						Layout: HBox{Spacing: 6},
 						Children: []Widget{
 							Label{Text: "目标版本", MinSize: Size{Width: 56}, MaxSize: Size{Width: 56}},
 							ComboBox{
 								AssignTo:              &verCombo,
 								Editable:              false,
 								StretchFactor:         1,
-								MinSize:               Size{Width: 280},
+								MinSize:               Size{Width: 260},
 								OnCurrentIndexChanged: func() { syncInstallButton() },
 							},
 							PushButton{
 								AssignTo:  &installBtn,
 								Text:      "安装选中版本",
-								MinSize:   Size{Width: 112},
-								MaxSize:   Size{Width: 112},
+								MinSize:   Size{Width: 108},
+								MaxSize:   Size{Width: 108},
 								Enabled:   false,
 								OnClicked: doInstallSelected,
 							},
@@ -614,16 +618,18 @@ func RunUI(store *Store, bot *BotManager) {
 					},
 					ProgressBar{
 						AssignTo:           &progressBar,
-						MinSize:            Size{Height: 18},
+						MinSize:            Size{Height: 16},
 						MaxValue:           100,
-						AlwaysConsumeSpace: true,
+						Visible:            false,
+						AlwaysConsumeSpace: false,
 					},
 					Label{
 						AssignTo:           &progressLbl,
-						Text:               " ",
-						MinSize:            Size{Height: 18},
-						MaxSize:            Size{Height: 18},
-						AlwaysConsumeSpace: true,
+						Text:               "",
+						MinSize:            Size{Height: 16},
+						MaxSize:            Size{Height: 16},
+						Visible:            false,
+						AlwaysConsumeSpace: false,
 					},
 					Label{Text: "运行日志", Font: Font{Family: "Segoe UI", PointSize: 9}},
 					TextEdit{
@@ -632,7 +638,7 @@ func RunUI(store *Store, bot *BotManager) {
 						VScroll:       true,
 						HScroll:       true,
 						Text:          "（暂无日志）",
-						MinSize:       Size{Height: 140},
+						MinSize:       Size{Height: 120},
 						StretchFactor: 1,
 					},
 				},
@@ -641,6 +647,7 @@ func RunUI(store *Store, bot *BotManager) {
 	}.Create()); err != nil {
 		panic(err)
 	}
+	resetProgress()
 	_ = mw.SetMinMaxSize(walk.Size{Width: winSize.Width, Height: winSize.Height}, walk.Size{Width: winSize.Width, Height: winSize.Height})
 	_ = mw.SetSize(walk.Size{Width: winSize.Width, Height: winSize.Height})
 	// Walk may still bump size when layout MinSize changes; pin it back.
