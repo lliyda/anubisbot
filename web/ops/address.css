@@ -191,6 +191,9 @@ body.addr-page {
 .addr-loading {
   padding: 48px; text-align: center; color: var(--muted);
 }
+.addr-loading-inline {
+  margin: 0; padding: 8px 0; color: var(--muted); font-size: 13px;
+}
 .addr-banner {
   margin: 0 0 10px; padding: 8px 10px; border-radius: 8px;
   background: #fdf2f1; color: var(--danger); font-size: 13px;

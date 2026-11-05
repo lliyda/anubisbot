@@ -13,6 +13,10 @@
     activityRows: [],
     activityTotal: 0,
     explorer: "https://browser.anubispace.org",
+    loadGen: 0,
+    burnClaims: null, // null=loading, array=loaded
+    rpcDone: false,
+    helixDone: false,
   };
 
   const METHOD_ZH = {
@@ -128,22 +132,30 @@
     const lgnsHint = lgns.ok
       ? `${lgns.depositCount ?? 0} 笔债券`
       : (lgns.contract ? shortAddr(lgns.contract) : "");
-    const claims = Array.isArray(bb.claims) ? bb.claims : [];
-    const rows = claims.map((r) => `<tr>
-      <td class="mono">${esc(fmtBeijing(r.at))}</td>
-      <td>${esc(r.label || r.kind || "—")}</td>
-      <td class="mono">${esc(num(r.amount, 6))} LGNS</td>
-      <td>${txLink(r.tx)}</td>
-    </tr>`).join("");
-    return section("可领取", `
-      <div class="addr-metrics">
+    const claims = state.burnClaims;
+    let rows;
+    if (claims === null) {
+      rows = `<tr><td colspan="4" class="addr-loading-inline">领取记录加载中…</td></tr>`;
+    } else {
+      rows = (Array.isArray(claims) ? claims : []).map((r) => `<tr>
+        <td class="mono">${esc(fmtBeijing(r.at))}</td>
+        <td>${esc(r.label || r.kind || "—")}</td>
+        <td class="mono">${esc(num(r.amount, 6))} LGNS</td>
+        <td>${txLink(r.tx)}</td>
+      </tr>`).join("") || `<tr><td colspan="4">无记录</td></tr>`;
+    }
+    const metrics = (fixed.ok || lgns.ok || fixed.claimable != null)
+      ? `<div class="addr-metrics">
         ${metric(fixed.label || "固定价销毁债券", esc(num(fixed.claimable, 4)), fixedHint)}
         ${metric(lgns.label || "LGNS 销毁债券", esc(num(lgns.claimable, 4)), lgnsHint)}
-      </div>
+      </div>`
+      : `<p class="addr-loading-inline">可领取加载中…</p>`;
+    return section("可领取", `
+      ${metrics}
       <h2 style="font-size:14px;margin:16px 0 8px">领取记录</h2>
       <div class="addr-table-wrap"><table class="addr-table">
         <thead><tr><th>时间(北京)</th><th>类型</th><th>数量</th><th>交易</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="4">无记录</td></tr>`}</tbody>
+        <tbody>${rows}</tbody>
       </table></div>`);
   }
 
@@ -466,6 +478,36 @@
       </table></div>`);
   }
 
+  function sectionPending(title) {
+    return section(title, `<p class="addr-loading-inline">加载中…</p>`);
+  }
+
+  function renderSkeleton() {
+    return [
+      sectionPending("余额"),
+      sectionPending("可领取"),
+      sectionPending("算力"),
+      sectionPending("团队与等级"),
+      sectionPending("排放与领取"),
+      sectionPending("销毁 500 LGNS 资格"),
+      sectionPending("手续费分红与激励"),
+      sectionPending("涡轮记录"),
+      sectionPending("治理锁仓仓位"),
+      sectionPending("链上活动"),
+    ].join("");
+  }
+
+  function mergeErrors(prev, next) {
+    const list = [...(prev || [])];
+    for (const e of next || []) {
+      if (!e) continue;
+      if (!list.some((x) => x.source === e.source && x.message === e.message)) {
+        list.push(e);
+      }
+    }
+    return list;
+  }
+
   function renderAll(data) {
     const body = $("#addrDlgBody");
     if (!body) return;
@@ -473,18 +515,24 @@
     const errHtml = errs.length
       ? `<div class="addr-errors">部分数据源失败: ${esc(errs.map((e) => e.source).join(", "))}</div>`
       : "";
+    const rpc = state.rpcDone;
+    const helix = state.helixDone;
     body.innerHTML = [
       errHtml,
-      renderBalances(data.balances, data.ailgnsPriceDai),
-      renderBurnBonds(data.burnBonds),
-      renderPower(data.power, data.networkActivePower),
-      renderTeam(data.community, data.level),
-      renderEmission(data.emission, data.claims, data.turbine, data.nft, data.community, data.ailgnsPriceDai),
-      renderBurnGate(data.burnGate, data.balances),
-      renderRewards(data.rewards),
-      renderTurbine(data.turbine),
-      renderVe(data.ve),
-      renderActivity(),
+      rpc ? renderBalances(data.balances, data.ailgnsPriceDai) : sectionPending("余额"),
+      (rpc || state.burnClaims !== null)
+        ? renderBurnBonds(data.burnBonds || {})
+        : sectionPending("可领取"),
+      helix ? renderPower(data.power, data.networkActivePower) : sectionPending("算力"),
+      helix ? renderTeam(data.community, data.level) : sectionPending("团队与等级"),
+      helix
+        ? renderEmission(data.emission, data.claims, data.turbine, data.nft, data.community, data.ailgnsPriceDai)
+        : sectionPending("排放与领取"),
+      rpc ? renderBurnGate(data.burnGate, data.balances || {}) : sectionPending("销毁 500 LGNS 资格"),
+      helix ? renderRewards(data.rewards) : sectionPending("手续费分红与激励"),
+      helix ? renderTurbine(data.turbine) : sectionPending("涡轮记录"),
+      helix ? renderVe(data.ve) : sectionPending("治理锁仓仓位"),
+      helix ? renderActivity() : sectionPending("链上活动"),
     ].join("");
   }
 
@@ -499,8 +547,15 @@
     const body = $("#addrDlgBody");
     if (!body) return;
     if (!isPageMode() && !dlg) return;
+    const gen = ++state.loadGen;
     state.addr = addr;
     state.activityFilter = "all";
+    state.activityRows = [];
+    state.activityTotal = 0;
+    state.burnClaims = null;
+    state.rpcDone = false;
+    state.helixDone = false;
+    state.data = { address: addr, errors: [] };
     if (input) input.value = addr;
     if (typeof window.state?.explorer === "string") state.explorer = window.state.explorer;
     if (isPageMode()) {
@@ -511,26 +566,89 @@
     } else if (dlg && !dlg.open) {
       dlg.showModal();
     }
-    body.innerHTML = `<div class="addr-loading">加载中…</div>`;
-    try {
-      if (!window.state?.explorer) {
-        try {
-          const h = await api("/health");
-          if (h.explorer) state.explorer = h.explorer;
-        } catch (_) { /* ignore */ }
-      }
-      if (explorer) {
-        explorer.href = `${state.explorer}/address/${addr}`;
-        explorer.hidden = false;
-      }
-      const data = await api(`/address/${addr}`);
-      state.data = data;
-      state.activityRows = data.activity?.rows || [];
-      state.activityTotal = data.activity?.total || state.activityRows.length;
-      renderAll(data);
-    } catch (err) {
-      body.innerHTML = `<div class="addr-errors">${esc(err.message || err)}</div>`;
+    body.innerHTML = renderSkeleton();
+
+    if (!window.state?.explorer) {
+      api("/health").then((h) => {
+        if (gen !== state.loadGen) return;
+        if (h.explorer) state.explorer = h.explorer;
+        if (explorer) {
+          explorer.href = `${state.explorer}/address/${addr}`;
+          explorer.hidden = false;
+        }
+      }).catch(() => {});
+    } else if (explorer) {
+      explorer.href = `${state.explorer}/address/${addr}`;
+      explorer.hidden = false;
     }
+
+    const still = () => gen === state.loadGen;
+
+    const applyRPC = (part) => {
+      if (!still()) return;
+      state.rpcDone = true;
+      state.data = {
+        ...state.data,
+        balances: part.balances,
+        burnGate: part.burnGate,
+        ailgnsPriceDai: part.ailgnsPriceDai,
+        networkActivePower: part.networkActivePower,
+        burnBonds: part.burnBonds,
+        errors: mergeErrors(state.data.errors, part.errors),
+      };
+      renderAll(state.data);
+    };
+
+    const applyHelix = (part) => {
+      if (!still()) return;
+      state.helixDone = true;
+      state.data = {
+        ...state.data,
+        power: part.power,
+        emission: part.emission,
+        community: part.community,
+        level: part.level,
+        turbine: part.turbine,
+        ve: part.ve,
+        rewards: part.rewards,
+        activity: part.activity,
+        nft: part.nft,
+        claims: part.claims,
+        errors: mergeErrors(state.data.errors, part.errors),
+      };
+      state.activityRows = part.activity?.rows || [];
+      state.activityTotal = part.activity?.total || state.activityRows.length;
+      renderAll(state.data);
+    };
+
+    const applyClaims = (part) => {
+      if (!still()) return;
+      state.burnClaims = Array.isArray(part.claims) ? part.claims : [];
+      state.data = {
+        ...state.data,
+        errors: mergeErrors(state.data.errors, part.errors),
+      };
+      if (state.data.burnBonds) {
+        state.data.burnBonds = { ...state.data.burnBonds, claims: state.burnClaims };
+      }
+      renderAll(state.data);
+    };
+
+    const markFail = (source, err) => {
+      if (!still()) return;
+      if (source === "rpc") state.rpcDone = true;
+      if (source === "helix") state.helixDone = true;
+      if (source === "burnClaims") state.burnClaims = [];
+      state.data.errors = mergeErrors(state.data.errors, [{
+        source,
+        message: err?.message || String(err),
+      }]);
+      renderAll(state.data);
+    };
+
+    api(`/address/${addr}/rpc`).then(applyRPC).catch((e) => markFail("rpc", e));
+    api(`/address/${addr}/helix`).then(applyHelix).catch((e) => markFail("helix", e));
+    api(`/address/${addr}/burn-claims`).then(applyClaims).catch((e) => markFail("burnClaims", e));
   }
 
   async function loadMoreActivity() {

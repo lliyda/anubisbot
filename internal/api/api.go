@@ -176,6 +176,9 @@ func (s *Server) Router() http.Handler {
 		r.Post("/tasks/{id}/lgns-approve", s.handleTaskLgnsApprove)
 		r.Get("/logs", s.handleLogs)
 		r.Get("/address/{addr}", s.handleAddress)
+		r.Get("/address/{addr}/rpc", s.handleAddressRPC)
+		r.Get("/address/{addr}/helix", s.handleAddressHelix)
+		r.Get("/address/{addr}/burn-claims", s.handleAddressBurnClaims)
 		r.Get("/address/{addr}/activity", s.handleAddressActivity)
 	})
 
