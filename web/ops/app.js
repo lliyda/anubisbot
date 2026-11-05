@@ -108,7 +108,38 @@ function shortAddr(a) {
 function addrCell(address) {
   if (!address) return `<td class="addr-cell mono">—</td>`;
   const full = escapeHtml(address);
-  return `<td class="addr-cell mono" title="${full}"><button type="button" class="addr-link-btn" data-act="open-addr" data-addr="${full}">${escapeHtml(shortAddr(address))}</button></td>`;
+  return `<td class="addr-cell mono" title="${full}"><button type="button" class="addr-link-btn" data-act="open-addr" data-addr="${full}">${escapeHtml(shortAddr(address))}</button><button type="button" class="btn secondary sm addr-copy-btn" data-act="copy-addr" data-addr="${full}">复制</button></td>`;
+}
+
+async function copyAddrFromBtn(btn) {
+  const addr = (btn?.dataset?.addr || "").trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return;
+  let ok = false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(addr);
+      ok = true;
+    }
+  } catch (_) { /* fallback */ }
+  if (!ok) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = addr;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      ok = document.execCommand("copy");
+      ta.remove();
+    } catch (_) { ok = false; }
+  }
+  if (!ok) {
+    toast("复制失败", true);
+    return;
+  }
+  const prev = btn.textContent;
+  btn.textContent = "已复制";
+  setTimeout(() => { btn.textContent = prev; }, 1000);
 }
 
 function fmtCountdown(targetISO) {
@@ -443,7 +474,10 @@ function formatTaskRecord(l) {
     } else if (!ok) {
       detail = [amt, l.error || l.message || "失败"].filter(Boolean).join(" · ");
     }
-    if (ok && ex.elapsedMs != null && ex.elapsedMs !== "") {
+    const includeMs = ex.includeMs != null && ex.includeMs !== "" ? ex.includeMs : null;
+    if (includeMs != null) {
+      detail = [detail, `上链 ${includeMs}ms`].filter(Boolean).join(" · ");
+    } else if (ex.elapsedMs != null && ex.elapsedMs !== "") {
       detail = [detail, `${ex.elapsedMs}ms`].filter(Boolean).join(" · ");
     }
     return { bad: !ok, title: ok ? "成功" : "失败", detail };
@@ -848,10 +882,8 @@ function tickCountdowns() {
   setTextQuiet($("#cdHelix"), fmtCountdown(h.next1159));
 }
 
-function bindDialogBackdrop(dlg) {
-  dlg.addEventListener("click", (e) => {
-    if (e.target === dlg) dlg.close();
-  });
+function bindDialogBackdrop(_dlg) {
+  // Intentionally empty: clicking the backdrop must not close dialogs.
 }
 
 function askApproveConfirm(spender) {
@@ -1318,6 +1350,11 @@ function bind() {
   $("#taskBody").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-act]");
     if (!btn) return;
+    if (btn.dataset.act === "copy-addr") {
+      e.stopPropagation();
+      await copyAddrFromBtn(btn);
+      return;
+    }
     if (btn.dataset.act === "open-addr") {
       openAddrFromClick(e, btn.dataset.addr);
       return;
@@ -1467,6 +1504,12 @@ function bind() {
     }
   });
   $("#walletBody").addEventListener("click", async (e) => {
+    const copyAddr = e.target.closest("[data-act=copy-addr]");
+    if (copyAddr) {
+      e.stopPropagation();
+      await copyAddrFromBtn(copyAddr);
+      return;
+    }
     const openAddr = e.target.closest("[data-act=open-addr]");
     if (openAddr) {
       openAddrFromClick(e, openAddr.dataset.addr);

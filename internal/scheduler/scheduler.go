@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
@@ -30,11 +31,12 @@ type Scheduler struct {
 	// sentFanout: "taskID|fireKey|rpcID" -> true
 	sentFanout map[string]bool
 	// fanoutOk / fanoutDone counts per "taskID|fireKey"
-	fanoutOk   map[string]int
-	fanoutDone map[string]int
-	fanoutNeed map[string]int
-	firedMark    map[string]bool // task marked fired for this fireKey
-	finishedMark map[string]bool // fanout completed for fireKey
+	fanoutOk     map[string]int
+	fanoutDone   map[string]int
+	fanoutNeed   map[string]int
+	firedMark    map[string]bool      // task marked fired for this fireKey
+	finishedMark map[string]bool      // fanout completed for fireKey
+	fanoutSendAt map[string]time.Time // fanKey -> first successful send wall clock
 }
 
 func (s *Scheduler) Start(parent context.Context) {
@@ -68,6 +70,9 @@ func (s *Scheduler) Start(parent context.Context) {
 	}
 	if s.finishedMark == nil {
 		s.finishedMark = map[string]bool{}
+	}
+	if s.fanoutSendAt == nil {
+		s.fanoutSendAt = map[string]time.Time{}
 	}
 	s.mu.Unlock()
 	go s.loop(ctx)
@@ -122,7 +127,6 @@ func (s *Scheduler) tick(ctx context.Context) {
 	rtts := s.RPC.RTTs()
 
 	var toSign []tasks.Task
-
 	for _, t := range s.Tasks.List() {
 		if t.Status != "armed" || !t.Enabled || t.FireAt == nil {
 			continue
@@ -138,16 +142,51 @@ func (s *Scheduler) tick(ctx context.Context) {
 		if !alreadySigned && !now.Before(signAt) {
 			toSign = append(toSign, t)
 		}
+	}
 
-		// per-RPC send windows
+	// Sign before any fanout send so all RPCs share one nonce/hash.
+	for _, t := range toSign {
+		fireKey := t.FireAt.UTC().UnixNano()
+		signed, err := s.Runner.Sign(ctx, t, t.FireAt.UTC())
+		s.mu.Lock()
+		if err != nil {
+			s.Logs.Add(logstore.Entry{
+				TaskID: t.ID, Wallet: t.WalletName, Event: "sign_fail",
+				Message: err.Error(),
+			})
+		} else {
+			s.cache[t.ID] = signed
+			s.signed[t.ID] = fireKey
+			s.Logs.Add(logstore.Entry{
+				TaskID: t.ID, Wallet: t.WalletName, Event: "signed",
+				Message: fmt.Sprintf("pre-signed for fireAt=%s maxLead=%dms", t.FireAt.Format(time.RFC3339), maxLead),
+			})
+		}
+		s.mu.Unlock()
+	}
+
+	for _, t := range s.Tasks.List() {
+		if t.Status != "armed" || !t.Enabled || t.FireAt == nil {
+			continue
+		}
+		fireAt := t.FireAt.UTC()
+		fireKey := fireAt.UnixNano()
 		fk := fanKey(t.ID, fireKey)
+
 		s.mu.Lock()
 		if _, ok := s.fanoutNeed[fk]; !ok {
 			s.fanoutNeed[fk] = len(activeIDs)
 			s.fanoutOk[fk] = 0
 			s.fanoutDone[fk] = 0
 		}
+		cached := s.cache[t.ID]
+		live := s.Runner != nil && s.Runner.Mode == "live"
+		ready := cached != nil && (cached.Tx != nil || cached.Sim || !live)
 		s.mu.Unlock()
+
+		if !ready {
+			continue
+		}
 
 		for _, rpcID := range activeIDs {
 			lead := leads[rpcID]
@@ -163,7 +202,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 
 			s.mu.Lock()
 			s.sentFanout[sk] = true
-			cached := s.cache[t.ID]
+			cached = s.cache[t.ID]
 			if !s.firedMark[fk] {
 				s.firedMark[fk] = true
 				tt := t
@@ -184,6 +223,11 @@ func (s *Scheduler) tick(ctx context.Context) {
 			s.fanoutDone[fk]++
 			if res.Error == "" {
 				s.fanoutOk[fk]++
+				if !res.Sim {
+					if _, ok := s.fanoutSendAt[fk]; !ok {
+						s.fanoutSendAt[fk] = time.Now()
+					}
+				}
 			}
 			done := s.fanoutDone[fk]
 			need := s.fanoutNeed[fk]
@@ -203,26 +247,6 @@ func (s *Scheduler) tick(ctx context.Context) {
 			}
 		}
 	}
-
-	for _, t := range toSign {
-		fireKey := t.FireAt.UTC().UnixNano()
-		signed, err := s.Runner.Sign(ctx, t, t.FireAt.UTC())
-		s.mu.Lock()
-		if err != nil {
-			s.Logs.Add(logstore.Entry{
-				TaskID: t.ID, Wallet: t.WalletName, Event: "sign_fail",
-				Message: err.Error(),
-			})
-		} else {
-			s.cache[t.ID] = signed
-			s.signed[t.ID] = fireKey
-			s.Logs.Add(logstore.Entry{
-				TaskID: t.ID, Wallet: t.WalletName, Event: "signed",
-				Message: fmt.Sprintf("pre-signed for fireAt=%s maxLead=%dms", t.FireAt.Format(time.RFC3339), maxLead),
-			})
-		}
-		s.mu.Unlock()
-	}
 }
 
 func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastHash, lastRPC string, lastRTT int64) {
@@ -237,6 +261,10 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastH
 	extra := map[string]any{"amount": amt, "ok": anyOK}
 	start := time.Unix(0, fireKey)
 
+	s.mu.Lock()
+	sendAt := s.fanoutSendAt[fk]
+	s.mu.Unlock()
+
 	if anyOK {
 		tt.Status = "success"
 		tt.LastError = ""
@@ -248,10 +276,14 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastH
 		if lastHash != "" && !strings.HasPrefix(lastHash, "sim-") && s.RPC != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 			rec, err := s.RPC.WaitReceipt(ctx, lastRPC, lastHash, 10*time.Second)
-			cancel()
 			if err == nil && rec != nil {
 				extra["blockNumber"] = rec.BlockNumber.Uint64()
 				extra["txIndex"] = uint64(rec.TransactionIndex)
+				if !sendAt.IsZero() {
+					if includeMs := inclusionMs(ctx, s.RPC, lastRPC, rec.BlockNumber, sendAt); includeMs >= 0 {
+						extra["includeMs"] = includeMs
+					}
+				}
 				if rec.Status == 0 {
 					anyOK = false
 					extra["ok"] = false
@@ -259,6 +291,7 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastH
 					tt.LastError = "tx reverted on-chain"
 				}
 			}
+			cancel()
 		}
 	} else {
 		tt.Status = "failed"
@@ -282,18 +315,23 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastH
 	}
 	extra["elapsedMs"] = elapsedMs
 
+	includeSuffix := ""
+	if v, ok := extra["includeMs"].(int64); ok {
+		includeSuffix = fmt.Sprintf(" · 上链 %dms", v)
+	}
+
 	msg := "失败"
 	ev := "result"
 	if anyOK {
 		msg = "成功"
 		if bn, ok := extra["blockNumber"].(uint64); ok {
 			idx, _ := extra["txIndex"].(uint64)
-			msg = fmt.Sprintf("成功 · %s · 块内第 %d 笔 · 高度 %d · %dms", amt, idx+1, bn, elapsedMs)
+			msg = fmt.Sprintf("成功 · %s · 块内第 %d 笔 · 高度 %d%s", amt, idx+1, bn, includeSuffix)
 		} else {
 			msg = fmt.Sprintf("成功 · %s · %dms", amt, elapsedMs)
 		}
 	} else if tt.LastError != "" {
-		msg = "失败 · " + tt.LastError
+		msg = "失败 · " + tt.LastError + includeSuffix
 	}
 	s.Logs.Add(logstore.Entry{
 		TaskID: t.ID, Wallet: t.WalletName, Event: ev,
@@ -303,12 +341,35 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastH
 
 	s.mu.Lock()
 	delete(s.cache, taskID)
+	delete(s.fanoutSendAt, fk)
 	s.mu.Unlock()
 
 	if tt.Schedule != "once" {
 		s.maybeRearm(taskID, s.Syncer.NowChain())
 	}
-	_ = fk
+}
+
+func inclusionMs(ctx context.Context, rpcMgr *rpc.Manager, rpcID string, blockNum *big.Int, sendAt time.Time) int64 {
+	if rpcMgr == nil || blockNum == nil || sendAt.IsZero() {
+		return -1
+	}
+	cli, err := rpcMgr.ClientByID(rpcID)
+	if err != nil {
+		cli, err = rpcMgr.Client()
+		if err != nil {
+			return -1
+		}
+	}
+	hdr, err := cli.HeaderByNumber(ctx, blockNum)
+	if err != nil || hdr == nil {
+		return -1
+	}
+	blockTime := time.Unix(int64(hdr.Time), 0)
+	ms := blockTime.Sub(sendAt).Milliseconds()
+	if ms < 0 {
+		return 0
+	}
+	return ms
 }
 
 func (s *Scheduler) maybeRearm(id string, now time.Time) {

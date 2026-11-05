@@ -550,11 +550,7 @@
     if (!root || root.dataset.bound) return;
     root.dataset.bound = "1";
     const dlg = $("#addressDialog");
-    if (dlg) {
-      dlg.addEventListener("click", (e) => {
-        if (e.target === dlg) dlg.close();
-      });
-    }
+    // Backdrop click must not close the address dialog.
     $("#btnCloseAddress")?.addEventListener("click", () => dlg?.close());
     $("#btnAddrQuery")?.addEventListener("click", () => {
       const v = ($("#addrQueryInput")?.value || "").trim();

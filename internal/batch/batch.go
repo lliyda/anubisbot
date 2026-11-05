@@ -184,27 +184,11 @@ func (r *Runner) SendToRPC(ctx context.Context, t tasks.Task, cached *SignedTx, 
 		return FireResult{TaskID: t.ID, TxHash: "sim-" + t.ID + "-" + rpcID, Sim: true, RPCID: rpcID}
 	}
 
-	var signed *types.Transaction
-	if cached != nil && cached.Tx != nil {
-		signed = cached.Tx
-	} else {
-		key, err := r.Wallets.PrivateKey(t.WalletID)
-		if err != nil {
-			return r.failSoft(t, rpcID, rtt, err.Error())
-		}
-		from := crypto.PubkeyToAddress(key.PublicKey)
-		nonce, err := r.RPC.PendingNonce(ctx, from.Hex())
-		if err != nil {
-			return r.failSoft(t, rpcID, rtt, err.Error())
-		}
-		to := common.HexToAddress(preset.To)
-		tx := txbuild.BuildLegacyTx(to, data, nonce, gasLimit, gasPrice, r.RPC.ChainID())
-		signer := types.NewEIP155Signer(r.RPC.ChainID())
-		signed, err = types.SignTx(tx, signer, key)
-		if err != nil {
-			return r.failSoft(t, rpcID, rtt, err.Error())
-		}
+	// Live fanout must reuse one pre-signed tx (same nonce/hash across RPCs).
+	if cached == nil || cached.Tx == nil {
+		return r.failSoft(t, rpcID, rtt, "not pre-signed")
 	}
+	signed := cached.Tx
 
 	err := r.RPC.SendTransaction(ctx, rpcID, signed)
 	if err != nil {

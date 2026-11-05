@@ -27,7 +27,7 @@ import (
 func main() {
 	mustChdir()
 	env := config.LoadEnv()
-	logs := logstore.New(500)
+	logs := logstore.NewWithFile(2000, "data/logs.jsonl")
 	// Mirror process logs into ops web「运行日志」; panel captures stdout separately.
 	log.SetOutput(io.MultiWriter(os.Stdout, &logstore.LineWriter{Store: logs, Event: "console"}))
 	log.SetFlags(log.LstdFlags)
