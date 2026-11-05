@@ -47,9 +47,9 @@
     "defaultSchedule": "daily_1159_cst",
     "defaultParams": {
       "args": [
-        "1"
+        "500000000000"
       ],
-      "burnAmount": "1",
+      "burnAmount": "500000000000",
       "gasLimit": 675000
     },
     "needsLgnsApprove": true

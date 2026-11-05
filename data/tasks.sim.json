@@ -49,7 +49,10 @@
       "fireAt": "2026-11-06T11:59:00.2+08:00",
       "enabled": true,
       "params": {
-        "burnAmount": "1",
+        "args": [
+          "500000000000"
+        ],
+        "burnAmount": "500000000000",
         "gasLimit": 675000
       },
       "status": "armed",
