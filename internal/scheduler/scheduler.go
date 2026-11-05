@@ -34,6 +34,9 @@ type Scheduler struct {
 	fanoutOk     map[string]int
 	fanoutDone   map[string]int
 	fanoutNeed   map[string]int
+	fanoutHash   map[string]string // best tx hash for this fire
+	fanoutRPC    map[string]string // rpc that first accepted best hash
+	fanoutRTT    map[string]int64
 	firedMark    map[string]bool      // task marked fired for this fireKey
 	finishedMark map[string]bool      // fanout completed for fireKey
 	fanoutSendAt map[string]time.Time // fanKey -> first successful send wall clock
@@ -64,6 +67,15 @@ func (s *Scheduler) Start(parent context.Context) {
 	}
 	if s.fanoutNeed == nil {
 		s.fanoutNeed = map[string]int{}
+	}
+	if s.fanoutHash == nil {
+		s.fanoutHash = map[string]string{}
+	}
+	if s.fanoutRPC == nil {
+		s.fanoutRPC = map[string]string{}
+	}
+	if s.fanoutRTT == nil {
+		s.fanoutRTT = map[string]int64{}
 	}
 	if s.firedMark == nil {
 		s.firedMark = map[string]bool{}
@@ -178,6 +190,9 @@ func (s *Scheduler) tick(ctx context.Context) {
 			s.fanoutNeed[fk] = len(activeIDs)
 			s.fanoutOk[fk] = 0
 			s.fanoutDone[fk] = 0
+			s.fanoutHash[fk] = ""
+			s.fanoutRPC[fk] = ""
+			s.fanoutRTT[fk] = 0
 		}
 		cached := s.cache[t.ID]
 		live := s.Runner != nil && s.Runner.Mode == "live"
@@ -223,6 +238,11 @@ func (s *Scheduler) tick(ctx context.Context) {
 			s.fanoutDone[fk]++
 			if res.Error == "" {
 				s.fanoutOk[fk]++
+				if res.TxHash != "" && s.fanoutHash[fk] == "" {
+					s.fanoutHash[fk] = res.TxHash
+					s.fanoutRPC[fk] = res.RPCID
+					s.fanoutRTT[fk] = rtt
+				}
 				if !res.Sim {
 					if _, ok := s.fanoutSendAt[fk]; !ok {
 						s.fanoutSendAt[fk] = time.Now()
@@ -242,14 +262,14 @@ func (s *Scheduler) tick(ctx context.Context) {
 				}
 				s.mu.Unlock()
 				if !alreadyFin {
-					s.finishFanout(t.ID, fireKey, okN > 0, res.TxHash, rpcID, rtt)
+					s.finishFanout(t.ID, fireKey, okN > 0)
 				}
 			}
 		}
 	}
 }
 
-func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastHash, lastRPC string, lastRTT int64) {
+func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 	fk := fanKey(taskID, fireKey)
 	t, ok := s.Tasks.Get(taskID)
 	if !ok {
@@ -263,35 +283,61 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastH
 
 	s.mu.Lock()
 	sendAt := s.fanoutSendAt[fk]
+	lastHash := s.fanoutHash[fk]
+	lastRPC := s.fanoutRPC[fk]
+	lastRTT := s.fanoutRTT[fk]
 	s.mu.Unlock()
 
+	live := s.Runner != nil && s.Runner.Mode == "live"
 	if anyOK {
-		tt.Status = "success"
 		tt.LastError = ""
 		if lastHash != "" {
 			tt.LastTxHash = lastHash
 		}
 		tt.LastRpcID = lastRPC
 		tt.LastRttMs = &lastRTT
-		if lastHash != "" && !strings.HasPrefix(lastHash, "sim-") && s.RPC != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-			rec, err := s.RPC.WaitReceipt(ctx, lastRPC, lastHash, 10*time.Second)
-			if err == nil && rec != nil {
-				extra["blockNumber"] = rec.BlockNumber.Uint64()
-				extra["txIndex"] = uint64(rec.TransactionIndex)
-				if !sendAt.IsZero() {
-					if includeMs := inclusionMs(ctx, s.RPC, lastRPC, rec.BlockNumber, sendAt); includeMs >= 0 {
-						extra["includeMs"] = includeMs
-					}
-				}
-				if rec.Status == 0 {
+
+		simHash := strings.HasPrefix(lastHash, "sim-")
+		if live && !simHash {
+			if lastHash == "" || s.RPC == nil {
+				anyOK = false
+				extra["ok"] = false
+				tt.Status = "failed"
+				tt.LastError = "broadcast ok but missing tx hash"
+			} else {
+				ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+				rec, err := s.RPC.WaitReceipt(ctx, lastRPC, lastHash, 10*time.Second)
+				if err != nil || rec == nil {
 					anyOK = false
 					extra["ok"] = false
 					tt.Status = "failed"
-					tt.LastError = "tx reverted on-chain"
+					if err != nil {
+						tt.LastError = "receipt timeout: " + err.Error()
+					} else {
+						tt.LastError = "receipt unavailable"
+					}
+				} else {
+					extra["blockNumber"] = rec.BlockNumber.Uint64()
+					extra["txIndex"] = uint64(rec.TransactionIndex)
+					if !sendAt.IsZero() {
+						if includeMs := inclusionMs(ctx, s.RPC, lastRPC, rec.BlockNumber, sendAt); includeMs >= 0 {
+							extra["includeMs"] = includeMs
+						}
+					}
+					if rec.Status == 0 {
+						anyOK = false
+						extra["ok"] = false
+						tt.Status = "failed"
+						tt.LastError = "tx reverted on-chain"
+					} else {
+						tt.Status = "success"
+					}
 				}
+				cancel()
 			}
-			cancel()
+		} else {
+			// sim / non-live: accept without receipt
+			tt.Status = "success"
 		}
 	} else {
 		tt.Status = "failed"
@@ -299,6 +345,7 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastH
 			tt.LastError = "all rpc fanout failed"
 		}
 	}
+	extra["ok"] = anyOK
 	if tt.Schedule == "once" {
 		tt.Enabled = false
 		tt.FireAt = nil
@@ -342,6 +389,9 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool, lastH
 	s.mu.Lock()
 	delete(s.cache, taskID)
 	delete(s.fanoutSendAt, fk)
+	delete(s.fanoutHash, fk)
+	delete(s.fanoutRPC, fk)
+	delete(s.fanoutRTT, fk)
 	s.mu.Unlock()
 
 	if tt.Schedule != "once" {

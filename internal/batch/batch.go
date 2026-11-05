@@ -194,17 +194,41 @@ func (r *Runner) SendToRPC(ctx context.Context, t tasks.Task, cached *SignedTx, 
 	if err != nil {
 		err2 := r.RPC.SendTransaction(ctx, rpcID, signed)
 		if err2 != nil {
+			// Same signed tx already accepted elsewhere: treat as broadcast OK.
+			if isTxAlreadyAccepted(err2) || isTxAlreadyAccepted(err) {
+				return r.broadcastOK(t, rpcID, rtt, amt, signed.Hash().Hex(), true)
+			}
 			return r.failSoft(t, rpcID, rtt, err2.Error())
 		}
 	}
-	hash := signed.Hash().Hex()
+	return r.broadcastOK(t, rpcID, rtt, amt, signed.Hash().Hex(), false)
+}
+
+func (r *Runner) broadcastOK(t tasks.Task, rpcID string, rtt int64, amt, hash string, dup bool) FireResult {
+	extra := map[string]any{"amount": amt, "rpcId": rpcID}
+	msg := fmt.Sprintf("广播 · %s · %s", rpcID, amt)
+	if dup {
+		extra["dup"] = true
+		msg = fmt.Sprintf("广播 · %s · %s · 已接受", rpcID, amt)
+	}
 	r.Logs.Add(logstore.Entry{
 		TaskID: t.ID, Wallet: t.WalletName, Event: "broadcast",
-		Message: fmt.Sprintf("广播 · %s · %s", rpcID, amt),
-		RPCID: rpcID, RTTMs: rtt, TxHash: hash,
-		Extra: map[string]any{"amount": amt, "rpcId": rpcID},
+		Message: msg, RPCID: rpcID, RTTMs: rtt, TxHash: hash, Extra: extra,
 	})
 	return FireResult{TaskID: t.ID, TxHash: hash, RPCID: rpcID}
+}
+
+// isTxAlreadyAccepted reports mempool/chain already has this signed tx (fanout-safe).
+func isTxAlreadyAccepted(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "already known") ||
+		strings.Contains(s, "known transaction") ||
+		strings.Contains(s, "already in pool") ||
+		strings.Contains(s, "already in the mempool") ||
+		strings.Contains(s, "nonce too low")
 }
 
 // AmountLabel returns human-readable claim/burn amount for logs.

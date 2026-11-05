@@ -70,8 +70,8 @@ var bonds = []bondMeta{
 	{kind: "lgns_burn", label: "LGNS 销毁债券", addr: LgnsBurn},
 }
 
-// Load fetches claimable balances and recent Claimed events for addr.
-func Load(ctx context.Context, cli *ethclient.Client, addr string) Snapshot {
+// LoadViews fetches claimable / depositCount only (fast eth_call path).
+func LoadViews(ctx context.Context, cli *ethclient.Client, addr string) Snapshot {
 	out := Snapshot{
 		FixedPrice: emptyView(bonds[0]),
 		LgnsBurn:   emptyView(bonds[1]),
@@ -103,18 +103,29 @@ func Load(ctx context.Context, cli *ethclient.Client, addr string) Snapshot {
 			}
 		}()
 	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		claims, err := loadClaims(ctx, cli, addr, defaultLimit)
-		mu.Lock()
-		defer mu.Unlock()
-		out.Claims = claims
-		if err != nil {
-			out.Errors = append(out.Errors, "claims: "+err.Error())
-		}
-	}()
 	wg.Wait()
+	return out
+}
+
+// LoadClaims scans Claimed events (slow getLogs path).
+func LoadClaims(ctx context.Context, cli *ethclient.Client, addr string, limit int) ([]Claim, []string) {
+	if cli == nil || !common.IsHexAddress(addr) {
+		return nil, []string{"rpc unavailable"}
+	}
+	addr = common.HexToAddress(addr).Hex()
+	claims, err := loadClaims(ctx, cli, addr, limit)
+	if err != nil {
+		return claims, []string{"claims: " + err.Error()}
+	}
+	return claims, nil
+}
+
+// Load fetches claimable balances and recent Claimed events for addr.
+func Load(ctx context.Context, cli *ethclient.Client, addr string) Snapshot {
+	out := LoadViews(ctx, cli, addr)
+	claims, errs := LoadClaims(ctx, cli, addr, defaultLimit)
+	out.Claims = claims
+	out.Errors = append(out.Errors, errs...)
 	return out
 }
 

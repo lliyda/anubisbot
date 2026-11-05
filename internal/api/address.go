@@ -30,6 +30,91 @@ func (s *Server) handleAddress(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 
+	out := map[string]any{"address": addr}
+	var errs []fetchErr
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		part, partErrs := s.fetchAddressRPC(ctx, addr)
+		mu.Lock()
+		defer mu.Unlock()
+		for k, v := range part {
+			out[k] = v
+		}
+		errs = append(errs, partErrs...)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		part, partErrs := s.fetchAddressHelix(ctx, addr)
+		mu.Lock()
+		defer mu.Unlock()
+		for k, v := range part {
+			out[k] = v
+		}
+		errs = append(errs, partErrs...)
+	}()
+
+	wg.Wait()
+	out["errors"] = errs
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) handleAddressRPC(w http.ResponseWriter, r *http.Request) {
+	addr := chi.URLParam(r, "addr")
+	if !addrRE.MatchString(addr) {
+		writeErr(w, 400, "invalid address")
+		return
+	}
+	part, errs := s.fetchAddressRPC(r.Context(), addr)
+	part["address"] = addr
+	part["errors"] = errs
+	writeJSON(w, 200, part)
+}
+
+func (s *Server) handleAddressHelix(w http.ResponseWriter, r *http.Request) {
+	addr := chi.URLParam(r, "addr")
+	if !addrRE.MatchString(addr) {
+		writeErr(w, 400, "invalid address")
+		return
+	}
+	part, errs := s.fetchAddressHelix(r.Context(), addr)
+	part["address"] = addr
+	part["errors"] = errs
+	writeJSON(w, 200, part)
+}
+
+func (s *Server) handleAddressBurnClaims(w http.ResponseWriter, r *http.Request) {
+	addr := chi.URLParam(r, "addr")
+	if !addrRE.MatchString(addr) {
+		writeErr(w, 400, "invalid address")
+		return
+	}
+	ctx := r.Context()
+	out := map[string]any{"address": addr, "claims": []any{}}
+	var errs []fetchErr
+
+	cli, err := s.RPC.Client()
+	if err != nil {
+		errs = append(errs, fetchErr{Source: "burnClaims", Message: "rpc unavailable"})
+		out["errors"] = errs
+		writeJSON(w, 200, out)
+		return
+	}
+	claims, claimErrs := burnbond.LoadClaims(ctx, cli, addr, 50)
+	out["claims"] = claims
+	for _, msg := range claimErrs {
+		errs = append(errs, fetchErr{Source: "burnClaims", Message: msg})
+	}
+	out["errors"] = errs
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) fetchAddressHelix(ctx context.Context, addr string) (map[string]any, []fetchErr) {
 	type slot struct {
 		key string
 		url string
@@ -47,13 +132,10 @@ func (s *Server) handleAddress(w http.ResponseWriter, r *http.Request) {
 		{"claims", helixfetch.ClaimsURL(addr)},
 	}
 
-	out := map[string]any{
-		"address": addr,
-	}
+	out := map[string]any{}
 	var errs []fetchErr
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-
 	for _, sl := range slots {
 		sl := sl
 		wg.Add(1)
@@ -70,6 +152,15 @@ func (s *Server) handleAddress(w http.ResponseWriter, r *http.Request) {
 			out[sl.key] = v
 		}()
 	}
+	wg.Wait()
+	return out, errs
+}
+
+func (s *Server) fetchAddressRPC(ctx context.Context, addr string) (map[string]any, []fetchErr) {
+	out := map[string]any{}
+	var errs []fetchErr
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
 	wg.Add(1)
 	go func() {
@@ -131,7 +222,7 @@ func (s *Server) handleAddress(w http.ResponseWriter, r *http.Request) {
 			mu.Unlock()
 			return
 		}
-		snap := burnbond.Load(ctx, cli, addr)
+		snap := burnbond.LoadViews(ctx, cli, addr)
 		mu.Lock()
 		out["burnBonds"] = snap
 		for _, msg := range snap.Errors {
@@ -147,8 +238,7 @@ func (s *Server) handleAddress(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	delete(out, "_longStake")
-	out["errors"] = errs
-	writeJSON(w, 200, out)
+	return out, errs
 }
 
 func (s *Server) handleAddressActivity(w http.ResponseWriter, r *http.Request) {
