@@ -28,6 +28,8 @@ func BuildCalldata(taskType string, preset config.Preset, params tasks.TaskParam
 		return nil, fmt.Errorf("bad selector")
 	}
 	switch strings.TrimSpace(preset.Method) {
+	case "claimAll":
+		return append([]byte{}, sel...), nil
 	case "claim":
 		arg := params.ClaimArg
 		if arg == 0 {

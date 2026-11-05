@@ -1588,9 +1588,10 @@ function bind() {
       },
       needsLgnsApprove: !!fd.get("needsLgnsApprove"),
     };
-    // keep legacy fields for older tasks/logs
-    if (body.function === "claim" && args[0] != null) {
-      body.defaultParams.claimArg = Number(args[0]) || undefined;
+    // keep legacy fields for older tasks/logs (claim only; claimAll has no args)
+    if (body.function === "claim" && args[0] != null && args[0] !== "") {
+      const n = Number(args[0]);
+      if (Number.isFinite(n)) body.defaultParams.claimArg = n;
     }
     if (body.function === "burnForPower" && args[0]) {
       body.defaultParams.burnAmount = args[0];

@@ -137,7 +137,7 @@
     </tr>`).join("");
     return section("可领取", `
       <div class="addr-metrics">
-        ${metric(fixed.label || "固定定价销毁债券", esc(num(fixed.claimable, 4)), fixedHint)}
+        ${metric(fixed.label || "固定价销毁债券", esc(num(fixed.claimable, 4)), fixedHint)}
         ${metric(lgns.label || "LGNS 销毁债券", esc(num(lgns.claimable, 4)), lgnsHint)}
       </div>
       <h2 style="font-size:14px;margin:16px 0 8px">领取记录</h2>

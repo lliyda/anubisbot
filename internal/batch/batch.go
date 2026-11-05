@@ -256,6 +256,8 @@ func AmountLabel(t tasks.Task, preset config.Preset) string {
 		base := new(big.Int).Exp(big.NewInt(10), big.NewInt(9), nil)
 		whole := new(big.Int).Div(n, base)
 		return whole.String() + " LGNS"
+	case "claimAll":
+		return "claimAll"
 	case "claim":
 		raw := ""
 		if len(args) > 0 {

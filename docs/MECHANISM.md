@@ -11,8 +11,8 @@
 
 ## 三类入口
 
-- **固定定价销毁债券** → `claim(1)` @ `0x3f40…E71F`，整点
-- **LGNS 销毁债券** → `claim(1)` @ `0x11b1…7c69`，整点
+- **固定价销毁债券** → `claimAll()` @ `0x3f40…E71F`，整点（页面「领取全部」）
+- **LGNS 销毁债券** → `claimAll()` @ `0x11b1…7c69`，整点（页面「领取全部」）
 - **AI 算力机器人（Helix）** → `burnForPower(500e9)` @ `0x9E68…8C1b`，每日 11:59+08
 
 链 ID 6714，gas 用 DAI。详见 `docs/VERIFICATION.md`。

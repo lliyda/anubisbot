@@ -6,11 +6,13 @@
 
 | 类型 | 合约 | 方法 | 开放时刻 |
 | --- | --- | --- | --- |
-| 固定定价销毁债券 | `0x3f403751975e1EB06d95901f7FF246513444E71F` | `claim(uint256)` `0x379607f5` arg=1 | 整点整秒 |
-| LGNS 销毁债券 | `0x11b10C9827c5B7071E96fcAa143B4e6E86b17c69` | 同上 | 整点整秒 |
+| 固定价销毁债券 | `0x3f403751975e1EB06d95901f7FF246513444E71F` | `claimAll()` `0x4e71d92d` | 整点整秒 |
+| LGNS 销毁债券 | `0x11b10C9827c5B7071E96fcAa143B4e6E86b17c69` | `claimAll()` `0x4e71d92d` | 整点整秒 |
 | Helix | `0x9E68F61E2615cc1D2C4a2D0026bFc1EBFdf68C1b` | `burnForPower` `0xffa6b88a` amount=500e9 | ~11:59:01 +08 |
 
-样例：
+债券类与 Origin 页面「领取全部」对齐；不再使用按存款下标的 `claim(uint256)`。
+
+历史样例（按债券 `claim(1)`，仅作参考）：
 
 - fixed: https://browser.anubispace.org/tx/0x7e55a237aaffdac03a4cf3d2b40f5f7f1f03ba51d806fc6d08a9808e3fcf34e8
 - lgns: https://browser.anubispace.org/tx/0xe9790ffc7996fccc2b01a5b90f04ca239be191e8e4d17a86a27e6d972fcb36d3
@@ -21,6 +23,6 @@
 
 ## 待观察
 
-- `claim(1)` 中 `1` 的完整语义
+- 非整点 `claimAll` 的 revert（额度帽 / 窗口）
 - 固定价是否需前置 DAI approve/存款
 - 额度耗尽与单地址限制的 revert 原因
