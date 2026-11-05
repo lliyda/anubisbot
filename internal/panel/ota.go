@@ -174,6 +174,7 @@ func resolveGithubToken(cfg Config) string {
 	}
 	// Reuse `gh auth login` session when available.
 	cmd := exec.Command("gh", "auth", "token")
+	hideConsole(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
