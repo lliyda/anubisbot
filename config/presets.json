@@ -1,0 +1,98 @@
+{
+  "fixed_price": {
+    "label": "固定定价销毁债券",
+    "description": "1 LGNS = 1 DAI 那张。每个整点 5 万 LGNS 额度，前 1~2 个区块就被领完。",
+    "icon": "diamond",
+    "to": "0x3f403751975e1EB06d95901f7FF246513444E71F",
+    "abi": [
+      {
+        "type": "function",
+        "name": "claim",
+        "stateMutability": "nonpayable",
+        "inputs": [
+          {
+            "name": "arg",
+            "type": "uint256"
+          }
+        ],
+        "outputs": []
+      }
+    ],
+    "function": "claim",
+    "method": "claim",
+    "selector": "379607f5",
+    "defaultSchedule": "hourly",
+    "defaultParams": {
+      "args": [
+        "1"
+      ],
+      "claimArg": 1,
+      "gasLimit": 240000
+    },
+    "needsLgnsApprove": false
+  },
+  "helix": {
+    "label": "AI 算力机器人（Helix）",
+    "description": "每天 11:59 开放，全网 400 份，约 3 秒抢光。烧 500 LGNS 换 2 倍算力。",
+    "icon": "robot",
+    "to": "0x9E68F61E2615cc1D2C4a2D0026bFc1EBFdf68C1b",
+    "abi": [
+      {
+        "type": "function",
+        "name": "burnForPower",
+        "stateMutability": "nonpayable",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "uint256"
+          }
+        ],
+        "outputs": []
+      }
+    ],
+    "function": "burnForPower",
+    "method": "burnForPower",
+    "selector": "ffa6b88a",
+    "defaultSchedule": "daily_1159_cst",
+    "defaultParams": {
+      "args": [
+        "1"
+      ],
+      "burnAmount": "1",
+      "gasLimit": 675000
+    },
+    "needsLgnsApprove": true
+  },
+  "lgns_burn": {
+    "label": "LGNS 销毁债券",
+    "description": "每个整点 5 万 LGNS 额度，第 1 个区块就被领完。",
+    "icon": "fire",
+    "to": "0x11b10C9827c5B7071E96fcAa143B4e6E86b17c69",
+    "abi": [
+      {
+        "type": "function",
+        "name": "claim",
+        "stateMutability": "nonpayable",
+        "inputs": [
+          {
+            "name": "arg",
+            "type": "uint256"
+          }
+        ],
+        "outputs": []
+      }
+    ],
+    "function": "claim",
+    "method": "claim",
+    "selector": "379607f5",
+    "defaultSchedule": "hourly",
+    "defaultParams": {
+      "args": [
+        "1"
+      ],
+      "claimArg": 1,
+      "gasLimit": 240000
+    },
+    "needsLgnsApprove": false
+  }
+}

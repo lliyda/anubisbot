@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>anubisbot · 连钱包</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/wallet/app.css" />
+</head>
+<body>
+  <main class="wrap">
+    <h1>连钱包签名</h1>
+    <p class="sub">次要模式：预签名后提交给本机调度（不承诺批量）。请先在钱包添加 Anubis Chain ID 6714。</p>
+    <button id="btnConnect" class="btn">连接钱包</button>
+    <p id="account" class="mono"></p>
+    <label>任务类型
+      <select id="type"></select>
+    </label>
+    <p id="desc" class="desc"></p>
+    <button id="btnSign" class="btn primary" disabled>签名并提交（需扩展支持）</button>
+    <p class="hint">多数浏览器钱包不暴露 eth_signTransaction。推荐使用主控台 hotkey 模式批量抢额度。本页用于展示类型说明与网络连接。</p>
+    <a href="/">← 返回运维台</a>
+  </main>
+  <script src="/wallet/app.js"></script>
+</body>
+</html>

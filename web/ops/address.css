@@ -1,0 +1,200 @@
+/* standalone address page */
+body.addr-page {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(900px 400px at 10% -10%, rgba(15, 118, 110, 0.08), transparent 55%),
+    var(--bg);
+}
+.addr-page-head {
+  flex-shrink: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  padding: 16px 24px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 10;
+}
+.addr-page-head h1 {
+  margin: 0; font-size: 18px; letter-spacing: -0.02em; flex-shrink: 0;
+}
+.addr-page-body {
+  flex: 1;
+  width: min(1100px, 100%);
+  margin: 0 auto;
+  padding: 20px 24px 40px;
+  display: grid;
+  gap: 14px;
+  box-sizing: border-box;
+}
+
+/* in-app dialog */
+#addressDialog {
+  max-width: none;
+  width: min(1100px, calc(100vw - 24px));
+  height: min(90vh, 920px);
+  max-height: 90vh;
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+#addressDialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.dialog-box.dialog-address {
+  max-width: none;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+.addr-dlg-head {
+  flex-shrink: 0;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 14px 18px;
+  background: #f7f8fa;
+  border-bottom: 1px solid var(--line);
+}
+.addr-dlg-head h3 { margin: 0; font-size: 16px; flex-shrink: 0; }
+.addr-dlg-tools {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1; min-width: 0;
+}
+.addr-dlg-tools input {
+  flex: 1; min-width: 180px; height: 32px;
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 0 10px; font: 13px var(--mono); background: #fff;
+}
+.addr-dlg-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 24px;
+  display: grid;
+  gap: 14px;
+}
+.addr-errors {
+  padding: 8px 12px; border-radius: 8px;
+  background: #fdf2f1; color: var(--danger); font-size: 12px;
+}
+.addr-section {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.addr-section h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.addr-section .sub {
+  margin: -6px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.addr-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.addr-metric {
+  background: #f4f7f6;
+  border-radius: 10px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+.addr-metric .k {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+.addr-metric .v {
+  display: block;
+  font: 600 16px/1.3 var(--mono);
+  color: var(--ink);
+  word-break: break-all;
+}
+.addr-metric .h {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.addr-table-wrap { overflow-x: auto; margin-top: 10px; }
+.addr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.addr-table th,
+.addr-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.addr-table th {
+  color: var(--muted);
+  font-weight: 500;
+  background: #f1f3f6;
+}
+.addr-table .mono { font-family: var(--mono); }
+.addr-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: #e8eaed;
+  color: #3a424c;
+}
+.addr-pill.ok { background: #d9efe9; color: #0f766e; }
+.addr-pill.warn { background: #f3e7d3; color: #8a5a10; }
+.addr-pill.bad { background: #fce8e6; color: #b42318; }
+.addr-filters {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+}
+.addr-filters button {
+  height: 28px; padding: 0 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: #fff;
+  font: 12px var(--font); cursor: pointer; color: var(--muted);
+}
+.addr-filters button.active {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+.addr-check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.addr-check-list li {
+  display: grid; grid-template-columns: 1.2rem 1fr auto; gap: 8px;
+  align-items: start; padding: 8px 10px; border-radius: 8px;
+  background: #f7f8fa; font-size: 13px;
+}
+.addr-check-list li.pending { opacity: 0.65; }
+.addr-check-list .mark { font-weight: 600; }
+.addr-check-list .mark.ok { color: var(--ok); }
+.addr-check-list .mark.bad { color: var(--danger); }
+.addr-check-list .mark.pending { color: var(--muted); }
+.addr-check-list .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.addr-directs summary {
+  cursor: pointer; font-size: 13px; color: var(--accent); margin-top: 8px;
+}
+.addr-loading {
+  padding: 48px; text-align: center; color: var(--muted);
+}
+.addr-banner {
+  margin: 0 0 10px; padding: 8px 10px; border-radius: 8px;
+  background: #fdf2f1; color: var(--danger); font-size: 13px;
+}
+.addr-banner.ok {
+  background: #e8f6f1; color: var(--ok);
+}
