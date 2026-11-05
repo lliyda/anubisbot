@@ -15,7 +15,7 @@
     ],
     "function": "claimAll",
     "method": "claimAll",
-    "selector": "4e71d92d",
+    "selector": "d1058e59",
     "defaultSchedule": "hourly",
     "defaultParams": {
       "gasLimit": 500000
@@ -70,7 +70,7 @@
     ],
     "function": "claimAll",
     "method": "claimAll",
-    "selector": "4e71d92d",
+    "selector": "d1058e59",
     "defaultSchedule": "hourly",
     "defaultParams": {
       "gasLimit": 500000
