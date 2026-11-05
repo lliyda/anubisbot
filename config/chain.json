@@ -1,0 +1,45 @@
+{
+  "chainId": 6714,
+  "explorer": "https://browser.anubispace.org",
+  "activeRpcId": "official",
+  "activeRpcIds": [
+    "official",
+    "rpc1",
+    "rpc2"
+  ],
+  "rpcs": [
+    {
+      "id": "official",
+      "name": "rpc.anubispace.org",
+      "url": "https://rpc.anubispace.org",
+      "builtin": true
+    },
+    {
+      "id": "rpc1",
+      "name": "rpc1",
+      "url": "https://rpc1.anubispace.org",
+      "builtin": true
+    },
+    {
+      "id": "rpc2",
+      "name": "rpc2",
+      "url": "https://rpc2.anubispace.org",
+      "builtin": true
+    }
+  ],
+  "tokens": {
+    "ailgns": "0x256EdB652db43E721EC6A12B6b51b6967D3bb8cB",
+    "dai": "0x83fd06F0846d9D90B3016bF670Efe2E0B11cDe14",
+    "lgns": "0x4D1D808a081FdAc440703b3765FC61f8028C06B8",
+    "slgns": "0x2243aE29F73137d678197b61B0621AE942845B8C"
+  },
+  "contracts": {
+    "ailgnsDaiPair": "0x0a1Cce65d995C6C5100e6F5bA3c388Ef34CEcaf0",
+    "epochClock": "0x6C5352E15A8327C3F44898FE220100Edc2989C58",
+    "lgnsBurnGate": "0xb975Fd9B03fF440d6a43a52A7F072154CB520a4B",
+    "powerLedger": "0x9E68F61E2615cc1D2C4a2D0026bFc1EBFdf68C1b"
+  },
+  "rttGreenMs": 150,
+  "rttYellowMs": 400,
+  "pingIntervalSec": 5
+}

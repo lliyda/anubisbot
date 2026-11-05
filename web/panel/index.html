@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Anubisbot 本地面板</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <main class="wrap">
+    <header class="head">
+      <div>
+        <h1>Anubisbot 面板</h1>
+        <p class="sub">本机控制：打开运维页 · 启停重启 · GitHub OTA</p>
+      </div>
+      <div class="ver" id="verBox">
+        <div>面板 <span class="mono" id="panelVer">—</span></div>
+        <div>服务 <span class="mono" id="botVer">—</span></div>
+      </div>
+    </header>
+
+    <section class="card status-card">
+      <div class="row">
+        <span class="label">状态</span>
+        <span id="statusDot" class="dot"></span>
+        <span id="statusText" class="mono">检测中…</span>
+      </div>
+      <div class="row muted" id="statusMeta">—</div>
+      <div class="actions">
+        <button type="button" class="btn primary" id="btnOpen">打开网页</button>
+        <button type="button" class="btn" id="btnStart">启动</button>
+        <button type="button" class="btn" id="btnStop">停止</button>
+        <button type="button" class="btn" id="btnRestart">重启</button>
+        <button type="button" class="btn" id="btnRefresh">刷新</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>OTA</h2>
+      <div class="actions">
+        <button type="button" class="btn" id="btnOtaCheck">检查更新</button>
+        <button type="button" class="btn primary" id="btnOtaApply">应用更新</button>
+      </div>
+      <pre class="ota-box mono" id="otaBox">尚未检查</pre>
+    </section>
+
+    <section class="card">
+      <h2>配置</h2>
+      <form id="cfgForm" class="form">
+        <label>监听地址<input name="listen" /></label>
+        <label>服务地址<input name="botHTTP" /></label>
+        <label>Bot 可执行文件<input name="botExe" /></label>
+        <label>GitHub 仓库 (owner/repo)<input name="githubRepo" placeholder="owner/repo" /></label>
+        <label>Release 资产名<input name="assetName" /></label>
+        <div class="actions">
+          <button type="submit" class="btn primary">保存配置</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>日志</h2>
+      <pre class="log-box mono" id="logBox"></pre>
+    </section>
+  </main>
+  <div id="toasts"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>anubisbot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/app.css" />
+  <link rel="stylesheet" href="/address.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">anubisbot</div>
+    <label class="mode-switch" title="运行模式">
+      <span class="mode-label" id="modeLabel">SIM</span>
+      <input type="checkbox" id="modeToggle" />
+      <span class="mode-track"><span class="mode-thumb"></span></span>
+    </label>
+    <div class="chips">
+      <div class="chip"><span class="chip-k">下一整点</span><span class="chip-v mono" id="cdHour">--:--</span></div>
+      <div class="chip"><span class="chip-k">Helix 11:59</span><span class="chip-v mono" id="cdHelix">--:--</span></div>
+      <div class="chip"><span class="chip-k">提前广播</span><span class="chip-v mono" id="leadText">— ms</span></div>
+    </div>
+    <div class="rpc-box">
+      <span class="offset mono" id="offsetText">offset —</span>
+      <div class="rpc-multi" id="rpcMulti">
+        <button type="button" class="rpc-multi-btn" id="rpcMultiBtn" aria-haspopup="listbox" aria-expanded="false">
+          <span id="rpcMultiLabel">选择 RPC</span>
+          <span class="caret">▾</span>
+        </button>
+        <div class="rpc-multi-panel" id="rpcMultiPanel" hidden role="listbox"></div>
+      </div>
+      <button type="button" class="btn ghost" id="btnRpcManage">RPC管理</button>
+      <button type="button" class="btn ghost" id="btnSettings">设置</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav class="nav">
+      <button class="nav-item active" data-view="tasks">任务</button>
+      <button class="nav-item" data-view="wallets">钱包</button>
+      <button class="nav-item" data-view="logs">日志</button>
+    </nav>
+
+    <main class="main">
+      <section id="view-tasks" class="view active">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-head-left">
+              <h1>任务列表</h1>
+              <input type="search" id="taskFilter" class="filter-input" placeholder="筛选钱包名 / 地址 / 任务类型" autocomplete="off" />
+            </div>
+            <button type="button" class="btn primary" id="btnNewTask">新建任务</button>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="taskTable">
+              <thead>
+                <tr>
+                  <th>启用</th>
+                  <th>名称</th>
+                  <th>地址</th>
+                  <th>任务类型</th>
+                  <th>定时</th>
+                  <th>下次执行</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="taskBody"></tbody>
+            </table>
+            <div class="empty" id="taskEmpty">还没有任务。点击「新建任务」开始。</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-wallets" class="view">
+        <div class="panel">
+          <div class="panel-head">
+            <h1>钱包簿</h1>
+            <div class="head-actions">
+              <button type="button" class="btn secondary" id="btnImportMnemonic">助记词导入</button>
+              <button type="button" class="btn primary" id="btnImportPrivateKey">私钥导入</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table" id="walletTable">
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>地址</th>
+                  <th>来源</th>
+                  <th>DAI</th>
+                  <th>LGNS</th>
+                  <th>sLGNS</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="walletBody"></tbody>
+            </table>
+            <div class="empty" id="walletEmpty">还没有钱包。请导入助记词或私钥。</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-logs" class="view">
+        <div class="panel">
+          <div class="panel-head">
+            <h1>运行日志</h1>
+            <label class="check"><input type="checkbox" id="failedOnly" /> 仅失败</label>
+          </div>
+          <div id="logList" class="log-list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="taskDialog">
+    <form id="taskForm" class="dialog-box dialog-wide">
+      <h3>新建任务</h3>
+      <label>任务名称<input name="name" placeholder="可选" /></label>
+      <label>钱包
+        <select name="walletId" id="walletSelect" required></select>
+      </label>
+      <label>任务类型
+        <select name="taskType" id="typeSelect" required></select>
+      </label>
+      <p class="desc" id="typeDesc"></p>
+      <p class="desc" id="typeScheduleHint">定时：随任务类型</p>
+      <div class="form-row">
+        <label>Gas Limit<input name="gasLimit" type="number" /></label>
+        <label>Gas Price (gwei)<input name="gasPriceGwei" type="number" step="0.01" placeholder="空=节点建议" /></label>
+      </div>
+      <div id="taskArgsFields"></div>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" id="btnCancelTask">取消</button>
+        <button type="submit" class="btn primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settingsDialog">
+    <div class="dialog-box dialog-settings">
+      <div class="settings-head">
+        <h3>设置</h3>
+        <button type="button" class="btn icon" id="btnCloseSettings">×</button>
+      </div>
+      <div class="tabs" id="settingsTabs">
+        <button type="button" class="tab active" data-tab="general">通用</button>
+        <button type="button" class="tab" data-tab="params">任务类型管理</button>
+        <button type="button" class="tab" data-tab="sim">模拟执行</button>
+      </div>
+
+      <div class="tab-panel active" id="tab-general">
+        <p class="desc">当前模式由顶栏切换（只读）：<strong id="settingsModeHint">SIM</strong></p>
+        <form id="settingsForm" class="form compact">
+          <label>签名提前量 (ms)<input name="signLeadMs" type="number" min="0" /></label>
+          <p class="desc">广播提前量固定为各 RPC 延迟的一半（RTT/2），不再使用松弛量。</p>
+          <label>批量并发<input name="batchConcurrency" type="number" min="1" /></label>
+          <label>Gas 倍率<input name="gasMultiplier" type="number" step="0.05" min="0.1" /></label>
+          <label>NTP 服务器<input name="ntpHost" placeholder="pool.ntp.org" /></label>
+          <label>Offset 同步间隔 (秒)<input name="ntpIntervalSec" type="number" min="5" step="1" /></label>
+          <p class="desc">用 NTP 校准本机时钟偏差（毫秒级）。间隔最小 5 秒，建议 30～60。</p>
+          <div class="form-actions">
+            <button type="submit" class="btn primary">保存通用设置</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="tab-panel" id="tab-params">
+        <div class="manage-toolbar">
+          <button type="button" class="btn secondary" id="btnAddPreset">新建任务类型</button>
+        </div>
+        <div class="task-manage-list" id="presetManageList"></div>
+        <p class="desc">点击「编辑」修改类型，或「新建任务类型」添加。</p>
+      </div>
+
+      <div class="tab-panel" id="tab-sim">
+        <form id="simForm" class="form compact">
+          <label>选择任务类型
+            <select id="simTypeSelect" required></select>
+          </label>
+          <p class="desc" id="simTypeDesc"></p>
+          <label>选择钱包
+            <select id="simWalletSelect"></select>
+          </label>
+          <label>from 地址
+            <input id="simFromInput" class="mono" placeholder="0x…" spellcheck="false" autocomplete="off" />
+          </label>
+          <p class="desc">用任务类型默认参数做 eth_call；须填写 from。不上链、不改任务状态。</p>
+          <div class="form-actions">
+            <button type="button" class="btn primary" id="btnSimulate">立即模拟</button>
+          </div>
+          <pre class="sim-result" id="simResult">尚未模拟</pre>
+          <p class="sim-summary" id="simResultSummary"></p>
+        </form>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="presetDialog">
+    <form id="presetForm" class="dialog-box dialog-wide form compact preset-form">
+      <div class="preset-head">
+        <h3 id="presetDialogTitle">新建任务类型</h3>
+        <button type="button" class="btn secondary sm" id="btnBackPreset">返回</button>
+      </div>
+      <div class="preset-body">
+        <label>类型 ID<input name="id" id="presetIdInput" placeholder="例如 my_claim" pattern="[a-z][a-z0-9_]{1,31}" required /></label>
+        <label>显示名称<input name="label" required /></label>
+        <label>说明<textarea name="description" rows="2"></textarea></label>
+        <label>合约地址 to<input name="to" placeholder="0x…" required /></label>
+        <label>ABI（JSON 数组）
+          <textarea name="abi" id="presetAbiInput" rows="7" required placeholder='[{"type":"function","name":"claim","stateMutability":"nonpayable","inputs":[{"name":"arg","type":"uint256"}],"outputs":[]}]'></textarea>
+        </label>
+        <p class="desc mono" id="presetAbiMeta">粘贴函数 ABI 后自动识别</p>
+        <label>函数名（ABI 含多个函数时填写）
+          <input name="function" id="presetFunctionInput" placeholder="自动取唯一函数名" />
+        </label>
+        <label>定时
+          <select name="defaultSchedule" required>
+            <option value="hourly">每整点</option>
+            <option value="daily_1159_cst">每日 11:59（CST）</option>
+            <option value="once">仅一次</option>
+          </select>
+        </label>
+        <div id="presetArgsFields"></div>
+        <label>默认 Gas Limit<input name="gasLimit" type="number" /></label>
+        <label class="check"><input type="checkbox" name="needsLgnsApprove" /> 需要 LGNS 授权</label>
+        <p class="desc">勾选后任务行可点「授权检测」；确认后才会发 approve</p>
+        <div class="form-actions">
+          <button type="button" class="btn secondary" id="btnCancelPreset">取消</button>
+          <button type="submit" class="btn primary">保存类型</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirmLive">
+    <form method="dialog" class="dialog-box">
+      <h3>切换到 LIVE？</h3>
+      <p>将真正向链上广播交易。请确认这是自有授权环境。</p>
+      <div class="form-actions">
+        <button value="cancel" class="btn secondary">取消</button>
+        <button value="ok" class="btn danger">确认 LIVE</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirmApprove">
+    <form method="dialog" class="dialog-box form compact" id="confirmApproveForm">
+      <h3>提前授权 LGNS？</h3>
+      <p id="confirmApproveMsg">当前授权不足，确认后将向合约发送 approve。</p>
+      <p class="desc mono" id="confirmApproveSpender"></p>
+      <label>授权数量（LGNS）
+        <input name="amount" id="approveAmountInput" value="无限" placeholder="无限" autocomplete="off" />
+      </label>
+      <p class="desc">默认「无限」= 最大额度；也可填具体数量，如 500</p>
+      <div class="form-actions">
+        <button value="cancel" class="btn secondary">取消</button>
+        <button value="ok" class="btn primary">确认授权</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirmDeleteTask">
+    <form method="dialog" class="dialog-box">
+      <h3>删除任务？</h3>
+      <p id="confirmDeleteTaskMsg">确定删除该任务？</p>
+      <div class="form-actions">
+        <button value="cancel" class="btn secondary">取消</button>
+        <button value="ok" class="btn danger">删除</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="taskLogsDialog">
+    <div class="dialog-box dialog-wide">
+      <div class="settings-head">
+        <h3 id="taskLogsTitle">任务记录</h3>
+        <button type="button" class="btn icon" id="btnCloseTaskLogs">×</button>
+      </div>
+      <div id="taskLogsList" class="log-list"></div>
+    </div>
+  </dialog>
+
+  <dialog id="rpcDialog">
+    <div class="dialog-box dialog-wide rpc-manage">
+      <div class="settings-head">
+        <h3>RPC 管理</h3>
+        <button type="button" class="btn icon" id="btnCloseRpc">×</button>
+      </div>
+      <div id="rpcManageList" class="rpc-manage-list"></div>
+      <div class="rpc-manage-foot">
+        <button type="button" class="btn secondary" id="btnOpenAddRpc">新增</button>
+        <button type="button" class="btn primary" id="btnSaveRpcManage">保存</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="rpcEditDialog">
+    <form class="dialog-box" id="rpcForm">
+      <h3 id="rpcFormTitle">新增 RPC</h3>
+      <label>ID<input name="id" id="rpcIdInput" placeholder="可选，留空自动生成" /></label>
+      <label>名称<input name="name" placeholder="可选" /></label>
+      <label class="rpc-url-label">URL
+        <div class="rpc-url-row">
+          <input name="url" required placeholder="rpc.example.com 或 https://..." />
+          <button type="button" class="btn secondary sm" id="btnProbeRpcUrl">测试</button>
+        </div>
+      </label>
+      <p class="rpc-probe-hint desc" id="rpcProbeHint" hidden></p>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" id="btnCancelRpcEdit">取消</button>
+        <button type="button" class="btn primary" id="btnSaveRpc">确定</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="mnemonicDialog">
+    <form class="dialog-box" id="mnemonicForm">
+      <h3>助记词导入</h3>
+      <label class="field">
+        <span class="field-label">名称</span>
+        <input name="name" placeholder="可选" />
+      </label>
+      <label class="field">
+        <span class="field-label">助记词</span>
+        <textarea name="mnemonic" rows="3" required placeholder="word1 word2 ..."></textarea>
+      </label>
+      <label class="field">
+        <span class="field-label">派生路径</span>
+        <input name="path" value="m/44'/60'/0'/0/0" />
+      </label>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" id="btnCloseMnemonic">取消</button>
+        <button type="submit" class="btn primary">导入</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="privateKeyDialog">
+    <form class="dialog-box" id="privateKeyForm">
+      <h3>私钥导入</h3>
+      <label class="field">
+        <span class="field-label">名称</span>
+        <input name="name" placeholder="可选" />
+      </label>
+      <label class="field">
+        <span class="field-label">私钥</span>
+        <input name="privateKey" type="password" required placeholder="0x..." autocomplete="off" />
+      </label>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" id="btnClosePrivateKey">取消</button>
+        <button type="submit" class="btn primary">导入</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="addressDialog">
+    <div class="dialog-box dialog-address">
+      <div class="addr-dlg-head">
+        <h3>查地址</h3>
+        <div class="addr-dlg-tools">
+          <input id="addrQueryInput" class="mono" placeholder="输入 0x 开头的钱包地址" spellcheck="false" />
+          <button type="button" class="btn primary sm" id="btnAddrQuery">查询</button>
+          <button type="button" class="btn secondary sm" id="btnAddrRefresh">刷新</button>
+          <a id="addrExplorerLink" href="#" target="_blank" rel="noreferrer" hidden>区块浏览器 ↗</a>
+        </div>
+        <button type="button" class="btn secondary sm" id="btnCloseAddress">关闭</button>
+      </div>
+      <div class="addr-dlg-body" id="addrDlgBody"></div>
+    </div>
+  </dialog>
+
+  <div class="toasts" id="toasts" popover="manual"></div>
+  <script src="/address.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
