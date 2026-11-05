@@ -42,6 +42,7 @@ var githubRepoRe = regexp.MustCompile(`(?i)(?:github\.com[:/]|git@github\.com:)(
 func DetectGithubRepo(root string) string {
 	cmd := exec.Command("git", "remote", "get-url", "origin")
 	cmd.Dir = root
+	hideConsole(cmd)
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

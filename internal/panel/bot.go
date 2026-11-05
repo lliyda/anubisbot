@@ -13,7 +13,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -111,12 +110,7 @@ func (m *BotManager) Start() error {
 	cmd.Stdout = io.MultiWriter(writers...)
 	cmd.Stderr = cmd.Stdout
 
-	if runtime.GOOS == "windows" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			HideWindow:    true,
-			CreationFlags: 0x08000000, // CREATE_NO_WINDOW
-		}
-	}
+	hideConsole(cmd)
 	if err := cmd.Start(); err != nil {
 		_ = pw.Close()
 		if logFile != nil {
@@ -164,7 +158,9 @@ func (m *BotManager) Stop() error {
 	}
 	if runtime.GOOS == "windows" {
 		exeName := filepath.Base(m.cfg.Get().BotExe)
-		_ = exec.Command("taskkill", "/F", "/IM", exeName).Run()
+		kill := exec.Command("taskkill", "/F", "/IM", exeName)
+		hideConsole(kill)
+		_ = kill.Run()
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -202,7 +198,7 @@ func OpenBrowser(url string) error {
 	switch runtime.GOOS {
 	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+		hideConsole(cmd)
 	case "darwin":
 		cmd = exec.Command("open", url)
 	default:

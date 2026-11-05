@@ -214,23 +214,20 @@ func RunUI(store *Store, bot *BotManager) {
 			metaByLabel[label] = meta
 			labelOrder = append(labelOrder, label)
 		}
-		if verCombo != nil {
-			_ = verCombo.SetModel(labelOrder)
-		}
-		defaultLabel := ""
-		if len(labelOrder) > 0 {
-			defaultLabel = labelOrder[0]
-		}
-		latest := result.Latest.Version
-		for _, label := range labelOrder {
-			meta := metaByLabel[label]
-			if latest != "" && meta.Version == latest && versionGT(meta.Version, local) {
-				defaultLabel = label
+		defaultIdx := 0
+		latest := normalizeTag(result.Latest.Version)
+		for i, label := range labelOrder {
+			if latest != "" && metaByLabel[label].Version == latest {
+				defaultIdx = i
 				break
 			}
 		}
-		if verCombo != nil && defaultLabel != "" {
-			_ = verCombo.SetText(defaultLabel)
+		if verCombo != nil {
+			_ = verCombo.SetModel(labelOrder)
+			if len(labelOrder) > 0 {
+				// non-editable ComboBox needs CurrentIndex; SetText alone won't select
+				_ = verCombo.SetCurrentIndex(defaultIdx)
+			}
 		}
 		syncInstallButton()
 	}
