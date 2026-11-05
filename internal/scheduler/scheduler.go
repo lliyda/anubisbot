@@ -125,6 +125,16 @@ func (s *Scheduler) signLead() time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
+func (s *Scheduler) rpcTimeout() time.Duration {
+	ms := 12000
+	if s.Settings != nil {
+		if v := s.Settings.Get().RpcTimeoutMs; v > 0 {
+			ms = v
+		}
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
 func fanKey(taskID string, fireKey int64) string {
 	return fmt.Sprintf("%s|%d", taskID, fireKey)
 }
@@ -218,6 +228,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 				continue
 			}
 
+			rtt := rtts[rpcID]
 			s.mu.Lock()
 			s.sentFanout[sk] = true
 			cached = s.cache[t.ID]
@@ -233,41 +244,48 @@ func (s *Scheduler) tick(ctx context.Context) {
 					Message: fmt.Sprintf("fanout start maxLead=%dms rpcs=%d", maxLead, len(activeIDs)),
 				})
 			}
+			taskCopy := t
+			cachedCopy := cached
+			rpcCopy := rpcID
+			rttCopy := rtt
+			leadCopy := lead
+			fkCopy := fk
+			fireKeyCopy := fireKey
 			s.mu.Unlock()
 
-			rtt := rtts[rpcID]
-			res := s.Runner.SendToRPC(ctx, t, cached, rpcID, rtt, lead)
-			s.mu.Lock()
-			s.fanoutDone[fk]++
-			if res.Error == "" {
-				s.fanoutOk[fk]++
-				if res.TxHash != "" && s.fanoutHash[fk] == "" {
-					s.fanoutHash[fk] = res.TxHash
-					s.fanoutRPC[fk] = res.RPCID
-					s.fanoutRTT[fk] = rtt
-				}
-				if !res.Sim {
-					if _, ok := s.fanoutSendAt[fk]; !ok {
-						s.fanoutSendAt[fk] = time.Now()
+			go func() {
+				rpcCtx, cancel := context.WithTimeout(ctx, s.rpcTimeout())
+				defer cancel()
+				res := s.Runner.SendToRPC(rpcCtx, taskCopy, cachedCopy, rpcCopy, rttCopy, leadCopy)
+
+				s.mu.Lock()
+				s.fanoutDone[fkCopy]++
+				if res.Error == "" {
+					s.fanoutOk[fkCopy]++
+					if res.TxHash != "" && s.fanoutHash[fkCopy] == "" {
+						s.fanoutHash[fkCopy] = res.TxHash
+						s.fanoutRPC[fkCopy] = res.RPCID
+						s.fanoutRTT[fkCopy] = rttCopy
+					}
+					if !res.Sim {
+						if _, ok := s.fanoutSendAt[fkCopy]; !ok {
+							s.fanoutSendAt[fkCopy] = time.Now()
+						}
 					}
 				}
-			}
-			done := s.fanoutDone[fk]
-			need := s.fanoutNeed[fk]
-			okN := s.fanoutOk[fk]
-			s.mu.Unlock()
-
-			if done >= need && need > 0 {
-				s.mu.Lock()
-				alreadyFin := s.finishedMark[fk]
-				if !alreadyFin {
-					s.finishedMark[fk] = true
+				done := s.fanoutDone[fkCopy]
+				need := s.fanoutNeed[fkCopy]
+				okN := s.fanoutOk[fkCopy]
+				shouldFin := done >= need && need > 0 && !s.finishedMark[fkCopy]
+				if shouldFin {
+					s.finishedMark[fkCopy] = true
 				}
 				s.mu.Unlock()
-				if !alreadyFin {
-					s.finishFanout(t.ID, fireKey, okN > 0)
+
+				if shouldFin {
+					s.finishFanout(taskCopy.ID, fireKeyCopy, okN > 0)
 				}
-			}
+			}()
 		}
 	}
 }
@@ -309,8 +327,9 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 				tt.Status = "failed"
 				tt.LastError = "broadcast ok but missing tx hash"
 			} else {
-				ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-				rec, err := s.RPC.WaitReceipt(ctx, lastRPC, lastHash, 10*time.Second)
+				to := s.rpcTimeout()
+				ctx, cancel := context.WithTimeout(context.Background(), to)
+				rec, err := s.RPC.WaitReceipt(ctx, lastRPC, lastHash, to)
 				if err != nil || rec == nil {
 					anyOK = false
 					extra["ok"] = false

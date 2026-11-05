@@ -316,6 +316,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"gasMultiplier":    st.GasMultiplier,
 		"ntpHost":          st.NtpHost,
 		"ntpIntervalSec":   st.NtpIntervalSec,
+		"rpcTimeoutMs":     st.RpcTimeoutMs,
 		"mode":             s.mode(),
 	})
 }

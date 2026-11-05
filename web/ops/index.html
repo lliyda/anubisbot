@@ -94,6 +94,7 @@
                   <th>DAI</th>
                   <th>LGNS</th>
                   <th>sLGNS</th>
+                  <th>AiLGNS</th>
                   <th>操作</th>
                 </tr>
               </thead>
@@ -157,6 +158,8 @@
         <form id="settingsForm" class="form compact">
           <label>签名提前量 (ms)<input name="signLeadMs" type="number" min="0" /></label>
           <p class="desc">广播提前量固定为各 RPC 延迟的一半（RTT/2），不再使用松弛量。</p>
+          <label>RPC 超时 (ms)<input name="rpcTimeoutMs" type="number" min="1000" step="1000" /></label>
+          <p class="desc">同时用于各路广播发送与上链等收据。</p>
           <label>批量并发<input name="batchConcurrency" type="number" min="1" /></label>
           <label>Gas 倍率<input name="gasMultiplier" type="number" step="0.05" min="0.1" /></label>
           <label>NTP 服务器<input name="ntpHost" placeholder="pool.ntp.org" /></label>
