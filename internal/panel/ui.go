@@ -64,6 +64,7 @@ func RunUI(store *Store, bot *BotManager) {
 		mw          *walk.MainWindow
 		ni          *walk.NotifyIcon
 		statusLbl   *walk.Label
+		verLbl      *walk.Label
 		updateLbl   *walk.TextLabel
 		logEdit     *walk.TextEdit
 		verCombo    *walk.ComboBox
@@ -240,16 +241,27 @@ func RunUI(store *Store, bot *BotManager) {
 		defer cancel()
 		h, err := bot.FetchHealth(ctx)
 		text := "● 离线 · 服务不可达"
+		display := version.String()
 		if err == nil {
 			ver, _ := h["version"].(string)
 			mode, _ := h["mode"].(string)
 			off := h["offsetMs"]
 			text = fmt.Sprintf("● 运行中 · v%s · %v · 时钟偏移 %vms", ver, mode, off)
+			if v := strings.TrimSpace(ver); v != "" {
+				display = v
+			}
 		}
 		if mw != nil {
 			mw.Synchronize(func() {
 				if statusLbl != nil {
 					_ = statusLbl.SetText(text)
+				}
+				if verLbl != nil {
+					_ = verLbl.SetText("面板 " + display)
+				}
+				_ = mw.SetTitle("Anubisbot 面板 — " + display)
+				if ni != nil {
+					_ = ni.SetToolTip("Anubisbot 面板 " + display)
 				}
 				refreshLogs()
 			})
@@ -543,8 +555,9 @@ func RunUI(store *Store, bot *BotManager) {
 						Font: Font{Family: "Segoe UI", PointSize: 12, Bold: true},
 					},
 					Label{
-						Text: "面板 " + version.String(),
-						Font: Font{Family: "Segoe UI", PointSize: 9},
+						AssignTo: &verLbl,
+						Text:     "面板 " + version.String(),
+						Font:     Font{Family: "Segoe UI", PointSize: 9},
 					},
 					HSpacer{},
 					PushButton{Text: "配置…", MinSize: Size{Width: 72}, MaxSize: Size{Width: 72}, OnClicked: openConfig},

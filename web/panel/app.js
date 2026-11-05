@@ -41,9 +41,10 @@ async function refreshLogs() {
 async function refreshStatus() {
   try {
     const st = await api("/status");
-    $("#panelVer").textContent = st.panelVersion || "—";
     const h = st.botHealth || {};
-    $("#botVer").textContent = h.version || (st.botHealthy ? "—" : "离线");
+    const botV = h.version || "";
+    $("#panelVer").textContent = botV || st.panelVersion || "—";
+    $("#botVer").textContent = botV || (st.botHealthy ? "—" : "离线");
     const ok = !!st.botHealthy;
     $("#statusDot").className = "dot " + (ok ? "ok" : "bad");
     $("#statusText").textContent = ok ? "运行中" : "未运行 / 不可达";

@@ -110,7 +110,7 @@ const COPY_ICON_SVG = `<svg class="addr-copy-icon" viewBox="0 0 16 16" width="14
 function addrCell(address) {
   if (!address) return `<td class="addr-cell mono">—</td>`;
   const full = escapeHtml(address);
-  return `<td class="addr-cell mono" title="${full}"><button type="button" class="addr-link-btn" data-act="open-addr" data-addr="${full}">${escapeHtml(shortAddr(address))}</button><button type="button" class="addr-copy-btn" data-act="copy-addr" data-addr="${full}" title="复制" aria-label="复制">${COPY_ICON_SVG}</button></td>`;
+  return `<td class="addr-cell mono"><button type="button" class="addr-link-btn" data-act="open-addr" data-addr="${full}" data-full="${full}" aria-label="${full}">${escapeHtml(shortAddr(address))}</button><button type="button" class="addr-copy-btn" data-act="copy-addr" data-addr="${full}" title="复制" aria-label="复制">${COPY_ICON_SVG}</button></td>`;
 }
 
 async function copyAddrFromBtn(btn) {
