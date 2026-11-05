@@ -110,7 +110,11 @@ func (s *Server) handleAddressBurnClaims(w http.ResponseWriter, r *http.Request)
 	}
 	forceRPC := r.URL.Query().Get("forceRpc") == "1" || r.URL.Query().Get("forceRpc") == "true"
 
-	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	timeout := 12 * time.Second
+	if forceRPC {
+		timeout = 45 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
 	out := map[string]any{
