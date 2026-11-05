@@ -1,0 +1,9 @@
+{
+  "signLeadMs": 800,
+  "sendSlackMs": 80,
+  "batchConcurrency": 16,
+  "gasMultiplier": 1.2,
+  "ntpHost": "pool.ntp.org",
+  "ntpIntervalSec": 30,
+  "mode": "live"
+}
