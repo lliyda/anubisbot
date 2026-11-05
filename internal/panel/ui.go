@@ -74,9 +74,12 @@ func RunUI(store *Store, bot *BotManager) {
 		busyMu      sync.Mutex
 		busy        bool
 		showMu      sync.Mutex
-		pending     *CheckResult
-		metaByLabel = map[string]VersionMeta{}
-		labelOrder  []string
+		pending       *CheckResult
+		metaByLabel   = map[string]VersionMeta{}
+		labelOrder    []string
+		lastOTALocal  string
+		otaSilentMu   sync.Mutex
+		otaSilentBusy bool
 	)
 
 	resetProgress := func() {
@@ -236,12 +239,64 @@ func RunUI(store *Store, bot *BotManager) {
 		syncInstallButton()
 	}
 
+	silentRefreshOTA := func() {
+		otaSilentMu.Lock()
+		if otaSilentBusy {
+			otaSilentMu.Unlock()
+			return
+		}
+		otaSilentBusy = true
+		otaSilentMu.Unlock()
+		go func() {
+			defer func() {
+				otaSilentMu.Lock()
+				otaSilentBusy = false
+				otaSilentMu.Unlock()
+			}()
+			if isBusy() {
+				return
+			}
+			InvalidateOTACache()
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			result, err := bot.CheckOTA(ctx)
+			cancel()
+			if err != nil || result == nil || !result.OK {
+				return
+			}
+			if mw == nil {
+				return
+			}
+			mw.Synchronize(func() {
+				if isBusy() {
+					return
+				}
+				lastOTALocal = normalizeTag(result.Local)
+				localV := result.Local
+				remoteV := result.Latest.Version
+				plat := result.Platform
+				if result.HasUpdate {
+					setUpdateStatus(fmt.Sprintf(
+						"远端最新 %s（当前 %s · %s）。可从下方选择任意历史版本升级或降级；安装将短暂停止服务。",
+						remoteV, localV, plat,
+					))
+				} else {
+					setUpdateStatus(fmt.Sprintf(
+						"已是最新版本。本地 %s（%s）· 远端 %s。如需回退，可从下方选择历史版本安装。",
+						localV, plat, remoteV,
+					))
+				}
+				populateVersionPicker(result)
+			})
+		}()
+	}
+
 	refreshStatus := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		h, err := bot.FetchHealth(ctx)
 		text := "● 离线 · 服务不可达"
 		display := version.String()
+		botVer := ""
 		if err == nil {
 			ver, _ := h["version"].(string)
 			mode, _ := h["mode"].(string)
@@ -249,6 +304,7 @@ func RunUI(store *Store, bot *BotManager) {
 			text = fmt.Sprintf("● 运行中 · v%s · %v · 时钟偏移 %vms", ver, mode, off)
 			if v := strings.TrimSpace(ver); v != "" {
 				display = v
+				botVer = v
 			}
 		}
 		if mw != nil {
@@ -266,6 +322,29 @@ func RunUI(store *Store, bot *BotManager) {
 				refreshLogs()
 			})
 		}
+		// Keep OTA「当前」 in sync with live bot version (not panel build when offline).
+		if botVer == "" {
+			return
+		}
+		live := normalizeTag(botVer)
+		if live == "" || live == lastOTALocal {
+			return
+		}
+		lastOTALocal = live
+		if pending == nil || normalizeTag(pending.Local) == live {
+			return
+		}
+		if mw != nil {
+			mw.Synchronize(func() {
+				if pending == nil {
+					return
+				}
+				pending.Local = live
+				pending.HasUpdate = versionGT(pending.Latest.Version, live)
+				populateVersionPicker(pending)
+			})
+		}
+		silentRefreshOTA()
 	}
 
 	runAsync := func(fn func() error, okMsg string) {
@@ -420,6 +499,7 @@ func RunUI(store *Store, bot *BotManager) {
 				localV, plat, remoteV,
 			))
 		}
+		lastOTALocal = normalizeTag(localV)
 		populateVersionPicker(result)
 		bot.AppendLog(fmt.Sprintf("检查更新完成: 本地 %s / 远端 %s", localV, remoteV))
 		refreshStatus()

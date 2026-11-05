@@ -113,6 +113,83 @@ function addrCell(address) {
   return `<td class="addr-cell mono"><button type="button" class="addr-link-btn" data-act="open-addr" data-addr="${full}" data-full="${full}" aria-label="${full}">${escapeHtml(shortAddr(address))}</button><button type="button" class="addr-copy-btn" data-act="copy-addr" data-addr="${full}" title="复制" aria-label="复制">${COPY_ICON_SVG}</button></td>`;
 }
 
+function getAddrHoverTip() {
+  let tip = document.getElementById("addrHoverTip");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.id = "addrHoverTip";
+    tip.hidden = true;
+    document.body.appendChild(tip);
+  }
+  return tip;
+}
+
+function hideAddrHoverTip() {
+  const tip = document.getElementById("addrHoverTip");
+  if (tip) {
+    tip.hidden = true;
+    tip.textContent = "";
+    delete tip.dataset.anchor;
+  }
+}
+
+function placeAddrHoverTip(anchor) {
+  const full = (anchor?.dataset?.full || "").trim();
+  if (!full || !anchor) {
+    hideAddrHoverTip();
+    return;
+  }
+  const tip = getAddrHoverTip();
+  tip.textContent = full;
+  tip.hidden = false;
+  tip.dataset.anchor = "1";
+  const r = anchor.getBoundingClientRect();
+  const pad = 6;
+  // Measure after visible
+  const tw = tip.offsetWidth;
+  const th = tip.offsetHeight;
+  let left = r.left;
+  let top = r.bottom + pad;
+  if (top + th > window.innerHeight - 8) {
+    top = r.top - th - pad;
+  }
+  if (left + tw > window.innerWidth - 8) {
+    left = Math.max(8, window.innerWidth - tw - 8);
+  }
+  if (left < 8) left = 8;
+  if (top < 8) top = 8;
+  tip.style.left = `${Math.round(left)}px`;
+  tip.style.top = `${Math.round(top)}px`;
+}
+
+function bindAddrHoverTip() {
+  if (document.documentElement.dataset.addrTipBound) return;
+  document.documentElement.dataset.addrTipBound = "1";
+  const match = (t) => t?.closest?.(".addr-link-btn[data-full]");
+  document.addEventListener("mouseover", (e) => {
+    const btn = match(e.target);
+    if (!btn) return;
+    placeAddrHoverTip(btn);
+  });
+  document.addEventListener("mouseout", (e) => {
+    const btn = match(e.target);
+    if (!btn) return;
+    const to = e.relatedTarget;
+    if (to && btn.contains(to)) return;
+    hideAddrHoverTip();
+  });
+  document.addEventListener("focusin", (e) => {
+    const btn = match(e.target);
+    if (btn) placeAddrHoverTip(btn);
+  });
+  document.addEventListener("focusout", (e) => {
+    const btn = match(e.target);
+    if (btn) hideAddrHoverTip();
+  });
+  window.addEventListener("scroll", hideAddrHoverTip, true);
+  window.addEventListener("resize", hideAddrHoverTip);
+}
+
 async function copyAddrFromBtn(btn) {
   const addr = (btn?.dataset?.addr || "").trim();
   if (!/^0x[0-9a-fA-F]{40}$/.test(addr)) return;
@@ -1738,6 +1815,7 @@ function bind() {
 }
 
 bind();
+bindAddrHoverTip();
 refreshAll().catch((e) => toast(e.message, true));
 setInterval(() => { refreshHealth().catch(() => {}); }, 2000);
 setInterval(() => { refreshLists().catch(() => {}); }, 8000);
