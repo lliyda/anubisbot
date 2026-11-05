@@ -14,7 +14,11 @@
     activityTotal: 0,
     explorer: "https://browser.anubispace.org",
     loadGen: 0,
-    burnClaims: null, // null=loading, array=loaded
+    burnClaims: null, // null=loading, array=loaded, false=failed
+    burnClaimsHasMore: false,
+    burnClaimsNextBefore: 0,
+    burnClaimsLoadingMore: false,
+    burnClaimsSource: "",
     rpcDone: false,
     helixDone: false,
   };
@@ -136,6 +140,8 @@
     let rows;
     if (claims === null) {
       rows = `<tr><td colspan="4" class="addr-loading-inline">领取记录加载中…</td></tr>`;
+    } else if (claims === false) {
+      rows = `<tr><td colspan="4" class="addr-loading-inline">领取记录加载失败</td></tr>`;
     } else {
       rows = (Array.isArray(claims) ? claims : []).map((r) => `<tr>
         <td class="mono">${esc(fmtBeijing(r.at))}</td>
@@ -144,6 +150,9 @@
         <td>${txLink(r.tx)}</td>
       </tr>`).join("") || `<tr><td colspan="4">无记录</td></tr>`;
     }
+    const moreBtn = (Array.isArray(claims) && state.burnClaimsHasMore)
+      ? `<div style="margin-top:10px"><button type="button" class="btn secondary sm" data-act="burn-claims-more"${state.burnClaimsLoadingMore ? " disabled" : ""}>${state.burnClaimsLoadingMore ? "加载中…" : "展示更多"}</button></div>`
+      : "";
     const metrics = (fixed.ok || lgns.ok || fixed.claimable != null)
       ? `<div class="addr-metrics">
         ${metric(fixed.label || "固定价销毁债券", esc(num(fixed.claimable, 4)), fixedHint)}
@@ -156,7 +165,8 @@
       <div class="addr-table-wrap"><table class="addr-table">
         <thead><tr><th>时间(北京)</th><th>类型</th><th>数量</th><th>交易</th></tr></thead>
         <tbody>${rows}</tbody>
-      </table></div>`);
+      </table></div>
+      ${moreBtn}`);
   }
 
   async function copyAddress() {
@@ -553,6 +563,10 @@
     state.activityRows = [];
     state.activityTotal = 0;
     state.burnClaims = null;
+    state.burnClaimsHasMore = false;
+    state.burnClaimsNextBefore = 0;
+    state.burnClaimsLoadingMore = false;
+    state.burnClaimsSource = "";
     state.rpcDone = false;
     state.helixDone = false;
     state.data = { address: addr, errors: [] };
@@ -624,6 +638,9 @@
     const applyClaims = (part) => {
       if (!still()) return;
       state.burnClaims = Array.isArray(part.claims) ? part.claims : [];
+      state.burnClaimsSource = part.source || "";
+      state.burnClaimsNextBefore = Number(part.nextBeforeBlock || 0) || 0;
+      state.burnClaimsHasMore = !!part.hasMore || state.burnClaimsNextBefore > 0 || part.source === "count";
       state.data = {
         ...state.data,
         errors: mergeErrors(state.data.errors, part.errors),
@@ -638,7 +655,7 @@
       if (!still()) return;
       if (source === "rpc") state.rpcDone = true;
       if (source === "helix") state.helixDone = true;
-      if (source === "burnClaims") state.burnClaims = [];
+      if (source === "burnClaims") state.burnClaims = false;
       state.data.errors = mergeErrors(state.data.errors, [{
         source,
         message: err?.message || String(err),
@@ -648,7 +665,52 @@
 
     api(`/address/${addr}/rpc`).then(applyRPC).catch((e) => markFail("rpc", e));
     api(`/address/${addr}/helix`).then(applyHelix).catch((e) => markFail("helix", e));
-    api(`/address/${addr}/burn-claims`).then(applyClaims).catch((e) => markFail("burnClaims", e));
+    api(`/address/${addr}/burn-claims?limit=10`).then(applyClaims).catch((e) => markFail("burnClaims", e));
+  }
+
+  async function loadMoreBurnClaims() {
+    const addr = state.addr;
+    if (!addr || state.burnClaimsLoadingMore || !Array.isArray(state.burnClaims)) return;
+    state.burnClaimsLoadingMore = true;
+    renderAll(state.data || { address: addr, errors: [] });
+    try {
+      const before = state.burnClaimsNextBefore || 0;
+      const q = new URLSearchParams({ limit: "10", forceRpc: "1" });
+      if (before > 0) q.set("beforeBlock", String(before));
+      const part = await api(`/address/${addr}/burn-claims?${q}`);
+      const incoming = Array.isArray(part.claims) ? part.claims : [];
+      const seen = new Set(state.burnClaims.map((c) => String(c.tx || "").toLowerCase()));
+      const merged = state.burnClaims.slice();
+      for (const c of incoming) {
+        const key = String(c.tx || "").toLowerCase();
+        if (key && seen.has(key)) continue;
+        if (key) seen.add(key);
+        merged.push(c);
+      }
+      state.burnClaims = merged;
+      state.burnClaimsSource = part.source || "rpc";
+      state.burnClaimsNextBefore = Number(part.nextBeforeBlock || 0) || 0;
+      state.burnClaimsHasMore = state.burnClaimsNextBefore > 0;
+      if (state.data?.burnBonds) {
+        state.data.burnBonds = { ...state.data.burnBonds, claims: state.burnClaims };
+      }
+      state.data = {
+        ...state.data,
+        errors: mergeErrors(state.data?.errors, part.errors),
+      };
+    } catch (e) {
+      state.data = {
+        ...(state.data || { address: addr }),
+        errors: mergeErrors(state.data?.errors, [{
+          source: "burnClaims",
+          message: e?.message || String(e),
+        }]),
+      };
+      state.burnClaimsHasMore = false;
+    } finally {
+      state.burnClaimsLoadingMore = false;
+      renderAll(state.data || { address: addr, errors: [] });
+    }
   }
 
   async function loadMoreActivity() {
@@ -701,6 +763,15 @@
       if (e.target.id === "addrLoadMore" || e.target.closest("#addrLoadMore")) {
         try {
           await loadMoreActivity();
+        } catch (err) {
+          alert(err.message || err);
+        }
+        return;
+      }
+      const moreClaims = e.target.closest("[data-act='burn-claims-more']");
+      if (moreClaims) {
+        try {
+          await loadMoreBurnClaims();
         } catch (err) {
           alert(err.message || err);
         }

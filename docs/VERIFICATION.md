@@ -21,6 +21,8 @@
 债券 proxy 共用 implementation `0x8AF6b33632725f6E30F8266DEb0835295332B626`。
 样例 claim tx 内未见 DAI transfer；Helix 烧毁 LGNS，需 approve。
 
+固定价 claim 成功时 LGNS 常从 `0x9D46CB414E76237d3b83E2a1630481038368f217` 转入钱包（非债券地址直接转出）。查已领的两种方式见 `docs/BURN_CLAIM_HISTORY.md`。
+
 ## 待观察
 
 - 非整点 `claimAll` 的 revert（额度帽 / 窗口）

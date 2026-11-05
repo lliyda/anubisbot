@@ -15,4 +15,6 @@
 - **LGNS 销毁债券** → `claimAll()` @ `0x11b1…7c69`，整点（页面「领取全部」）
 - **AI 算力机器人（Helix）** → `burnForPower(500e9)` @ `0x9E68…8C1b`，每日 11:59+08
 
+固定价 **已领记录** 跟 LGNS 从 `0x9D46…` 转入，不是债券合约上的 `Claimed` 事件。两种查法（count API / 链上 Transfer）见 `docs/BURN_CLAIM_HISTORY.md`。
+
 链 ID 6714，gas 用 DAI。详见 `docs/VERIFICATION.md`。
