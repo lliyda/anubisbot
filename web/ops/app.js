@@ -829,7 +829,7 @@ function renderWallets(force = false) {
   body.innerHTML = state.wallets.map((w) => {
     const bal = state.balances[w.id] || {};
     return `<tr data-id="${w.id}">
-      <td class="wallet-name-cell"><span class="wallet-name-text">${escapeHtml(w.name)}</span><button type="button" class="addr-copy-btn" data-act="edit-wallet-name" title="改名" aria-label="改名">${EDIT_ICON_SVG}</button></td>
+      <td><div class="wallet-name-cell"><span class="wallet-name-text">${escapeHtml(w.name)}</span><button type="button" class="addr-copy-btn" data-act="edit-wallet-name" title="改名" aria-label="改名">${EDIT_ICON_SVG}</button></div></td>
       ${addrCell(w.address)}
       <td>${escapeHtml(sourceLabel(w.source))}</td>
       <td class="mono">${escapeHtml(bal.dai ?? "—")}</td>
