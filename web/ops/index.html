@@ -172,8 +172,10 @@
           <p class="desc">当前模式由顶栏切换（只读）：<strong id="settingsModeHint">SIM</strong></p>
           <form id="settingsForm" class="form compact">
             <label>签名提前量 (ms)<input name="signLeadMs" type="number" min="0" /></label>
-            <label class="check"><input name="earlyBroadcast" type="checkbox" /> 提前广播（半 RTT）</label>
-            <p class="desc">开启后按各路 RPC 的 halfRTT 在整点前提前发出；关闭则卡在 fireAt 整点发。</p>
+            <div class="field-hint">
+              <label class="check"><input name="earlyBroadcast" type="checkbox" /> 提前广播（半 RTT）</label>
+              <p class="desc">开：各路按 halfRTT 提前发；关：整点 fireAt 再发。</p>
+            </div>
             <label>RPC 超时 (ms)<input name="rpcTimeoutMs" type="number" min="1000" step="1000" /></label>
             <p class="desc">同时用于各路广播发送与上链等收据。</p>
             <label>批量并发<input name="batchConcurrency" type="number" min="1" /></label>
