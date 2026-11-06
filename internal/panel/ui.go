@@ -68,8 +68,12 @@ func RunUI(store *Store, bot *BotManager) {
 		updateLbl       *walk.TextLabel
 		logEdit         *walk.TextEdit
 		verCombo        *walk.ComboBox
+		verRow          *walk.Composite
+		verTargetLbl    *walk.Label
+		checkUpdateBtn  *walk.PushButton
 		installBtn      *walk.PushButton
 		restartPanelBtn *walk.PushButton
+		otaBtnCol       *walk.Composite // right column: check / install / restart
 		progressBar     *walk.ProgressBar
 		progressLbl     *walk.Label
 		busyMu          sync.Mutex
@@ -79,8 +83,6 @@ func RunUI(store *Store, bot *BotManager) {
 		metaByLabel     = map[string]VersionMeta{}
 		labelOrder      []string
 		lastOTALocal    string
-		otaSilentMu     sync.Mutex
-		otaSilentBusy   bool
 		panelPendingExe string
 		panelPendingNew string
 	)
@@ -203,13 +205,62 @@ func RunUI(store *Store, bot *BotManager) {
 		return meta, ok
 	}
 
+	// 布局稿: fixed 120px right column — check / install / restart stacked; same width always.
+	const otaBtnW, otaBtnH = 120, 22
+	forceOTABtnSize := func(btn *walk.PushButton) {
+		if btn == nil {
+			return
+		}
+		sz := walk.Size{Width: otaBtnW, Height: otaBtnH}
+		_ = btn.SetMinMaxSize(sz, sz)
+		_ = btn.SetSize(sz)
+	}
+	forceOTAColumnSizes := func() {
+		if otaBtnCol != nil {
+			_ = otaBtnCol.SetMinMaxSize(walk.Size{Width: otaBtnW, Height: 0}, walk.Size{Width: otaBtnW, Height: 200})
+			_ = otaBtnCol.SetWidth(otaBtnW)
+		}
+		forceOTABtnSize(checkUpdateBtn)
+		forceOTABtnSize(installBtn)
+		forceOTABtnSize(restartPanelBtn)
+	}
+
+	setVersionControlsVisible := func(show bool) {
+		// Toggle every control — Walk often ignores Composite-only Visible.
+		if verRow != nil {
+			verRow.SetVisible(show)
+		}
+		if verTargetLbl != nil {
+			verTargetLbl.SetVisible(show)
+		}
+		if verCombo != nil {
+			verCombo.SetVisible(show)
+		}
+		if installBtn != nil {
+			installBtn.SetVisible(show)
+		}
+		if !show {
+			resetProgress()
+		} else {
+			forceOTAColumnSizes()
+		}
+		if mw != nil {
+			mw.Invalidate()
+		}
+	}
+
 	syncInstallButton := func() {
 		if installBtn == nil {
 			return
 		}
-		// Keep fixed label so button width never jumps.
-		_ = installBtn.SetText("安装选中版本")
-		_, ok := selectedMeta()
+		meta, ok := selectedMeta()
+		label := "安装选中版本"
+		if ok && pending != nil &&
+			normalizeTag(meta.Version) == normalizeTag(pending.Local) {
+			label = "重新安装此版本"
+		}
+		_ = installBtn.SetText(label)
+		forceOTABtnSize(installBtn)
 		if !ok || pending == nil {
 			installBtn.SetEnabled(false)
 			return
@@ -225,6 +276,7 @@ func RunUI(store *Store, bot *BotManager) {
 			_ = verCombo.SetModel([]string{})
 			_ = verCombo.SetText("")
 		}
+		setVersionControlsVisible(false)
 		syncInstallButton()
 	}
 
@@ -256,59 +308,10 @@ func RunUI(store *Store, bot *BotManager) {
 				_ = verCombo.SetCurrentIndex(defaultIdx)
 			}
 		}
+		setVersionControlsVisible(true)
 		syncInstallButton()
 	}
 
-	silentRefreshOTA := func() {
-		otaSilentMu.Lock()
-		if otaSilentBusy {
-			otaSilentMu.Unlock()
-			return
-		}
-		otaSilentBusy = true
-		otaSilentMu.Unlock()
-		go func() {
-			defer func() {
-				otaSilentMu.Lock()
-				otaSilentBusy = false
-				otaSilentMu.Unlock()
-			}()
-			if isBusy() {
-				return
-			}
-			InvalidateOTACache()
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			result, err := bot.CheckOTA(ctx)
-			cancel()
-			if err != nil || result == nil || !result.OK {
-				return
-			}
-			if mw == nil {
-				return
-			}
-			mw.Synchronize(func() {
-				if isBusy() {
-					return
-				}
-				lastOTALocal = normalizeTag(result.Local)
-				localV := result.Local
-				remoteV := result.Latest.Version
-				plat := result.Platform
-				if result.HasUpdate {
-					setUpdateStatus(fmt.Sprintf(
-						"远端最新 %s（当前 %s · %s）。可从下方选择任意历史版本升级或降级；安装将短暂停止服务。",
-						remoteV, localV, plat,
-					))
-				} else {
-					setUpdateStatus(fmt.Sprintf(
-						"已是最新版本。本地 %s（%s）· 远端 %s。如需回退，可从下方选择历史版本安装。",
-						localV, plat, remoteV,
-					))
-				}
-				populateVersionPicker(result)
-			})
-		}()
-	}
 
 	refreshStatus := func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -364,7 +367,6 @@ func RunUI(store *Store, bot *BotManager) {
 				populateVersionPicker(pending)
 			})
 		}
-		silentRefreshOTA()
 	}
 
 	runAsync := func(fn func() error, okMsg string) {
@@ -513,7 +515,7 @@ func RunUI(store *Store, bot *BotManager) {
 			))
 		} else {
 			setUpdateStatus(fmt.Sprintf(
-				"已是最新版本。本地 %s（%s）· 远端 %s。如需回退，可从下方选择历史版本安装。",
+				"已是最新版本。本地 %s（%s）· 远端 %s。",
 				localV, plat, remoteV,
 			))
 		}
@@ -740,50 +742,86 @@ func RunUI(store *Store, bot *BotManager) {
 			},
 			GroupBox{
 				Title:         "软件更新",
-				Layout:        VBox{Margins: pad, Spacing: 6},
+				Layout:        VBox{Margins: pad, Spacing: 8},
 				StretchFactor: 1,
 				Children: []Widget{
+					// JSON 布局稿: status|check(120); 目标+combo|install(120); 运行日志|restart(120); log 通栏.
 					Composite{
-						Layout: HBox{Spacing: 8, Alignment: AlignHNearVNear},
+						StretchFactor: 0,
+						Layout:        HBox{Spacing: 10, Alignment: AlignHNearVNear},
 						Children: []Widget{
-							TextLabel{
-								AssignTo:      &updateLbl,
-								Text:          "点击「检查更新」查询版本；可选历史版本升级或降级，不会自动安装。",
+							Composite{
 								StretchFactor: 1,
-								MinSize:       Size{Width: 360, Height: 36},
-								MaxSize:       Size{Height: 40},
+								Layout:        VBox{MarginsZero: true, Spacing: 9},
+								Children: []Widget{
+									TextLabel{
+										AssignTo:      &updateLbl,
+										Text:          "点击「检查更新」查询版本；可选历史版本升级或降级，不会自动安装。",
+										StretchFactor: 1,
+										MinSize:       Size{Width: 380, Height: 30},
+										MaxSize:       Size{Height: 30},
+									},
+									Composite{
+										AssignTo:           &verRow,
+										StretchFactor:      1,
+										Visible:            false,
+										AlwaysConsumeSpace: false,
+										Layout:             HBox{Spacing: 6, Alignment: AlignHNearVCenter},
+										Children: []Widget{
+											Label{
+												AssignTo: &verTargetLbl,
+												Text:     "目标版本",
+												MinSize:  Size{Width: 56},
+												MaxSize:  Size{Width: 56},
+												Visible:  false,
+											},
+											ComboBox{
+												AssignTo:              &verCombo,
+												Editable:              false,
+												StretchFactor:         1,
+												MinSize:               Size{Width: 246, Height: 22},
+												MaxSize:               Size{Height: 22},
+												Visible:               false,
+												OnCurrentIndexChanged: func() { syncInstallButton() },
+											},
+										},
+									},
+								},
 							},
-							PushButton{Text: "检查更新", MinSize: Size{Width: 88, Height: 28}, MaxSize: Size{Width: 88}, OnClicked: doCheckUpdate},
-						},
-					},
-					Composite{
-						Layout: HBox{Spacing: 6},
-						Children: []Widget{
-							Label{Text: "目标版本", MinSize: Size{Width: 56}, MaxSize: Size{Width: 56}},
-							ComboBox{
-								AssignTo:              &verCombo,
-								Editable:              false,
-								StretchFactor:         1,
-								MinSize:               Size{Width: 260},
-								OnCurrentIndexChanged: func() { syncInstallButton() },
-							},
-							PushButton{
-								AssignTo:  &installBtn,
-								Text:      "安装选中版本",
-								MinSize:   Size{Width: 108},
-								MaxSize:   Size{Width: 108},
-								Enabled:   false,
-								OnClicked: doInstallSelected,
-							},
-							PushButton{
-								AssignTo:           &restartPanelBtn,
-								Text:               "重启面板以更新",
-								MinSize:            Size{Width: 120},
-								MaxSize:            Size{Width: 120},
-								Enabled:            false,
-								Visible:            false,
-								AlwaysConsumeSpace: false,
-								OnClicked:          doRestartPanelToUpdate,
+							Composite{
+								AssignTo: &otaBtnCol,
+								MinSize:  Size{Width: 120},
+								MaxSize:  Size{Width: 120},
+								Layout:   VBox{MarginsZero: true, Spacing: 8},
+								Children: []Widget{
+									PushButton{
+										AssignTo:  &checkUpdateBtn,
+										Text:      "检查更新",
+										MinSize:   Size{Width: 120, Height: 22},
+										MaxSize:   Size{Width: 120, Height: 22},
+										OnClicked: doCheckUpdate,
+									},
+									PushButton{
+										AssignTo:           &installBtn,
+										Text:               "安装选中版本",
+										MinSize:            Size{Width: 120, Height: 22},
+										MaxSize:            Size{Width: 120, Height: 22},
+										Enabled:            false,
+										Visible:            false,
+										AlwaysConsumeSpace: false,
+										OnClicked:          doInstallSelected,
+									},
+									PushButton{
+										AssignTo:           &restartPanelBtn,
+										Text:               "重启面板以更新",
+										MinSize:            Size{Width: 120, Height: 22},
+										MaxSize:            Size{Width: 120, Height: 22},
+										Enabled:            false,
+										Visible:            false,
+										AlwaysConsumeSpace: false,
+										OnClicked:          doRestartPanelToUpdate,
+									},
+								},
 							},
 						},
 					},
@@ -809,7 +847,7 @@ func RunUI(store *Store, bot *BotManager) {
 						VScroll:       true,
 						HScroll:       true,
 						Text:          "（暂无日志）",
-						MinSize:       Size{Height: 120},
+						MinSize:       Size{Height: 95},
 						StretchFactor: 1,
 					},
 				},
@@ -825,6 +863,7 @@ func RunUI(store *Store, bot *BotManager) {
 	preferred := walk.Size{Width: winSize.Width, Height: winSize.Height}
 	var pinning bool
 	mw.SizeChanged().Attach(func() {
+		forceOTAColumnSizes()
 		if pinning || mw == nil {
 			return
 		}
@@ -895,34 +934,16 @@ func RunUI(store *Store, bot *BotManager) {
 		}
 	}()
 
-	// Silent check like akgo: notify only, never auto-install.
-	go func() {
-		time.Sleep(3 * time.Second)
-		if isBusy() {
-			return
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		result, err := bot.CheckOTA(ctx)
-		if err != nil || result == nil || !result.OK {
-			return
-		}
-		if mw == nil {
-			return
-		}
-		mw.Synchronize(func() {
-			localV := result.Local
-			if result.HasUpdate {
-				remoteV := result.Latest.Version
-				setUpdateStatus(fmt.Sprintf(
-					"发现新版本 %s（当前 %s）。点击「检查更新」查看并安装；不会自动安装。",
-					remoteV, localV,
-				))
-				bot.AppendLog(fmt.Sprintf("发现更新: %s → %s", localV, remoteV))
-			}
-		})
-	}()
+	// No automatic OTA check on startup — only when the user clicks「检查更新」.
 
+	// Hide version picker until the user clicks「检查更新」.
+	clearVersionPicker()
+	forceOTAColumnSizes()
 	mw.Show()
+	// Walk may re-show children during first layout; hide again after Show.
+	mw.Synchronize(func() {
+		setVersionControlsVisible(false)
+		forceOTAColumnSizes()
+	})
 	mw.Run()
 }
