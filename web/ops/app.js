@@ -107,6 +107,7 @@ function shortAddr(a) {
 }
 
 const COPY_ICON_SVG = `<svg class="addr-copy-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const EDIT_ICON_SVG = `<svg class="addr-copy-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`;
 
 function addrCell(address) {
   if (!address) return `<td class="addr-cell mono">—</td>`;
@@ -807,7 +808,7 @@ function renderWallets(force = false) {
   body.innerHTML = state.wallets.map((w) => {
     const bal = state.balances[w.id] || {};
     return `<tr data-id="${w.id}">
-      <td>${escapeHtml(w.name)}</td>
+      <td class="wallet-name-cell"><span class="wallet-name-text">${escapeHtml(w.name)}</span><button type="button" class="addr-copy-btn" data-act="edit-wallet-name" title="改名" aria-label="改名">${EDIT_ICON_SVG}</button></td>
       ${addrCell(w.address)}
       <td>${escapeHtml(sourceLabel(w.source))}</td>
       <td class="mono">${escapeHtml(bal.dai ?? "—")}</td>
@@ -1047,6 +1048,10 @@ function fillTaskSelects(preferId) {
 }
 
 function updateTypeDesc() {
+  const form = $("#taskForm");
+  const editing = !!(form?.taskId?.value);
+  const gweiEl = form?.querySelector('[name="gasPriceGwei"]');
+  const keepGwei = editing && gweiEl ? gweiEl.value : null;
   const t = $("#typeSelect").value;
   const p = state.presets[t];
   $("#typeDesc").textContent = p?.description || "";
@@ -1058,6 +1063,7 @@ function updateTypeDesc() {
   }
   const gas = document.querySelector('#taskForm [name="gasLimit"]');
   if (p?.defaultParams?.gasLimit) gas.value = p.defaultParams.gasLimit;
+  if (keepGwei != null && gweiEl) gweiEl.value = keepGwei;
   const box = $("#taskArgsFields");
   const resolved = resolveAbiFn(JSON.stringify(p?.abi || []), presetFnName(p));
   if (!resolved.fn) {
@@ -1065,6 +1071,81 @@ function updateTypeDesc() {
     return;
   }
   renderArgFields(box, resolved.fn, abiArgDefaults(resolved.fn, p), "taskArg");
+}
+
+function resetTaskDialogMode() {
+  const form = $("#taskForm");
+  if (!form) return;
+  form.taskId.value = "";
+  form.walletIdMirror.value = "";
+  const title = $("#taskFormTitle");
+  if (title) title.textContent = "新建任务";
+  const sel = $("#walletSelect");
+  if (sel) {
+    sel.disabled = false;
+    sel.required = true;
+  }
+}
+
+function openNewTaskDialog() {
+  const form = $("#taskForm");
+  form.reset();
+  resetTaskDialogMode();
+  fillTypeSelect();
+  fillWalletSelect();
+  $("#taskDialog").showModal();
+}
+
+function openEditTaskDialog(task) {
+  if (!task) return;
+  const form = $("#taskForm");
+  form.reset();
+  fillTypeSelect();
+  fillWalletSelect();
+  form.taskId.value = task.id;
+  form.walletIdMirror.value = task.walletId || "";
+  form.name.value = task.name || "";
+  const sel = $("#walletSelect");
+  if (sel) {
+    sel.value = task.walletId || "";
+    sel.disabled = true;
+    sel.required = false;
+  }
+  form.taskType.value = task.taskType || "";
+  updateTypeDesc();
+  const p = task.params || {};
+  if (p.gasLimit) form.gasLimit.value = p.gasLimit;
+  form.gasPriceGwei.value = p.gasPriceGwei != null && p.gasPriceGwei !== "" ? p.gasPriceGwei : "";
+  const preset = state.presets[task.taskType];
+  const box = $("#taskArgsFields");
+  const resolved = resolveAbiFn(JSON.stringify(preset?.abi || []), presetFnName(preset));
+  if (resolved.fn && box) {
+    let vals = abiArgDefaults(resolved.fn, preset);
+    if (Array.isArray(p.args) && p.args.length) {
+      vals = p.args.map(String);
+    } else if (p.burnAmount && resolved.fn.inputs?.length) {
+      vals = resolved.fn.inputs.map((_, i) => (i === 0 ? String(p.burnAmount) : ""));
+    }
+    renderArgFields(box, resolved.fn, vals, "taskArg");
+  }
+  const title = $("#taskFormTitle");
+  if (title) title.textContent = "编辑任务";
+  $("#taskDialog").showModal();
+}
+
+function buildTaskParamsFromForm(fd, taskType) {
+  const params = {
+    gasLimit: Number(fd.get("gasLimit") || 0) || undefined,
+  };
+  const gwei = fd.get("gasPriceGwei");
+  if (gwei !== "" && gwei != null) params.gasPriceGwei = Number(gwei);
+  const p = state.presets[taskType];
+  const resolved = resolveAbiFn(JSON.stringify(p?.abi || []), presetFnName(p));
+  const n = resolved.fn?.inputs?.length || 0;
+  if (n > 0) {
+    params.args = collectArgFields($("#taskForm"), "taskArg", n);
+  }
+  return params;
 }
 
 function openSettings(tab = "general") {
@@ -1531,59 +1612,80 @@ function bind() {
 
   const taskDlg = $("#taskDialog");
   bindDialogBackdrop(taskDlg);
+  taskDlg.addEventListener("close", () => resetTaskDialogMode());
   $("#taskFilter").addEventListener("input", (e) => {
     state.taskFilter = e.target.value || "";
     renderTasks(true);
   });
 
-  $("#btnNewTask").addEventListener("click", () => {
-    $("#taskForm").reset();
-    fillTypeSelect();
-    fillWalletSelect();
-    taskDlg.showModal();
+  $("#btnNewTask").addEventListener("click", () => openNewTaskDialog());
+  $("#btnCancelTask").addEventListener("click", () => {
+    taskDlg.close();
   });
-  $("#btnCancelTask").addEventListener("click", () => taskDlg.close());
   $("#typeSelect").addEventListener("change", updateTypeDesc);
 
   $("#taskForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const taskId = (fd.get("taskId") || "").toString().trim();
     const taskType = fd.get("taskType");
-    const params = {
-      gasLimit: Number(fd.get("gasLimit") || 0) || undefined,
-    };
-    const gwei = fd.get("gasPriceGwei");
-    if (gwei !== "" && gwei != null) params.gasPriceGwei = Number(gwei);
-    {
-      const p = state.presets[taskType];
-      const resolved = resolveAbiFn(JSON.stringify(p?.abi || []), presetFnName(p));
-      const n = resolved.fn?.inputs?.length || 0;
-      if (n > 0) {
-        params.args = collectArgFields($("#taskForm"), "taskArg", n);
-      }
-    }
-    const body = {
-      name: fd.get("name") || undefined,
-      walletId: fd.get("walletId"),
-      taskType,
-      // schedule 由服务端按任务类型 defaultSchedule 写入
-      enabled: true,
-      params,
-    };
-    const dup = state.tasks.find((t) => t.walletId === body.walletId && t.taskType === body.taskType);
+    const params = buildTaskParamsFromForm(fd, taskType);
+    const walletId = taskId
+      ? (fd.get("walletIdMirror") || "").toString()
+      : (fd.get("walletId") || "").toString();
+    const dup = state.tasks.find(
+      (t) => t.walletId === walletId && t.taskType === taskType && t.id !== taskId
+    );
     if (dup) {
-      const typeLabel = state.presets[body.taskType]?.label || body.taskType;
-      toast(`该钱包已有相同任务类型「${typeLabel}」，请勿重复创建`, true);
+      const typeLabel = state.presets[taskType]?.label || taskType;
+      toast(
+        taskId
+          ? `该钱包已有相同任务类型「${typeLabel}」`
+          : `该钱包已有相同任务类型「${typeLabel}」，请勿重复创建`,
+        true
+      );
       return;
     }
     try {
-      await api("/tasks", { method: "POST", body: JSON.stringify(body) });
-      toast("任务已创建并排队下次执行");
+      if (taskId) {
+        await api(`/tasks/${taskId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            name: (fd.get("name") || "").toString(),
+            taskType,
+            params,
+          }),
+        });
+        toast("任务已更新");
+      } else {
+        await api("/tasks", {
+          method: "POST",
+          body: JSON.stringify({
+            name: fd.get("name") || undefined,
+            walletId,
+            taskType,
+            enabled: true,
+            params,
+          }),
+        });
+        toast("任务已创建并排队下次执行");
+      }
       taskDlg.close();
       await refreshLists();
     } catch (err) {
       toast(err.message, true);
     }
+  });
+
+  $("#taskBody").addEventListener("dblclick", (e) => {
+    if (e.target.closest(".toggle, [data-act], input.fire-edit, .addr-link-btn, .addr-copy-btn")) {
+      return;
+    }
+    const tr = e.target.closest("tr[data-id]");
+    if (!tr) return;
+    const task = state.tasks.find((t) => t.id === tr.dataset.id);
+    if (!task) return;
+    openEditTaskDialog(task);
   });
 
   $("#taskBody").addEventListener("change", async (e) => {
@@ -1768,6 +1870,31 @@ function bind() {
       toast(err.message, true);
     }
   });
+  const walletRenameDlg = $("#walletRenameDialog");
+  if (walletRenameDlg) {
+    bindDialogBackdrop(walletRenameDlg);
+    $("#btnCancelWalletRename")?.addEventListener("click", () => walletRenameDlg.close());
+    $("#walletRenameForm")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const id = (fd.get("walletId") || "").toString();
+      const name = (fd.get("name") || "").toString().trim();
+      if (!id) return;
+      if (!name) {
+        toast("名称不能为空", true);
+        return;
+      }
+      try {
+        await api(`/wallets/${id}`, { method: "PATCH", body: JSON.stringify({ name }) });
+        toast("钱包名称已更新");
+        walletRenameDlg.close();
+        await refreshLists();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+  }
+
   $("#walletBody").addEventListener("click", async (e) => {
     const copyAddr = e.target.closest("[data-act=copy-addr]");
     if (copyAddr) {
@@ -1778,6 +1905,21 @@ function bind() {
     const openAddr = e.target.closest("[data-act=open-addr]");
     if (openAddr) {
       openAddrFromClick(e, openAddr.dataset.addr);
+      return;
+    }
+    const editName = e.target.closest("[data-act=edit-wallet-name]");
+    if (editName) {
+      e.stopPropagation();
+      const tr = editName.closest("tr");
+      const id = tr?.dataset.id;
+      const wal = state.wallets.find((w) => w.id === id);
+      if (!wal || !walletRenameDlg) return;
+      const form = $("#walletRenameForm");
+      form.walletId.value = wal.id;
+      form.name.value = wal.name || "";
+      walletRenameDlg.showModal();
+      form.name.focus();
+      form.name.select();
       return;
     }
     const btn = e.target.closest("[data-act=del-wallet]");

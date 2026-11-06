@@ -119,6 +119,31 @@ func (s *Store) Add(w Wallet) error {
 	return s.save()
 }
 
+// Rename updates the display name of a wallet. Address and keys are unchanged.
+func (s *Store) Rename(id, name string) (Wallet, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Wallet{}, fmt.Errorf("name required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.list {
+		if s.list[i].ID != id {
+			continue
+		}
+		s.list[i].Name = name
+		if err := s.save(); err != nil {
+			return Wallet{}, err
+		}
+		w := s.list[i]
+		return Wallet{
+			ID: w.ID, Name: w.Name, Address: w.Address, Source: w.Source,
+			Path: w.Path, PrivateKeyEnv: w.PrivateKeyEnv, MnemonicEnv: w.MnemonicEnv,
+		}, nil
+	}
+	return Wallet{}, fmt.Errorf("wallet not found")
+}
+
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

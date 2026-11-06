@@ -96,6 +96,33 @@ func (s *Store) Get(id string) (Task, bool) {
 	return Task{}, false
 }
 
+// SyncWalletName updates walletName on every task bound to walletID.
+func (s *Store) SyncWalletName(walletID, name string) (int, error) {
+	if walletID == "" {
+		return 0, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := range s.list {
+		if s.list[i].WalletID != walletID {
+			continue
+		}
+		if s.list[i].WalletName == name {
+			continue
+		}
+		s.list[i].WalletName = name
+		n++
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	if err := s.saveLocked(); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 func (s *Store) Create(t Task, presets map[string]config.Preset) (Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -282,6 +309,62 @@ func (s *Store) Patch(id string, patch map[string]any) (Task, error) {
 		return t, nil
 	}
 	return Task{}, fmt.Errorf("task not found")
+}
+
+// UpdateEditable updates name, taskType, and params from the edit dialog.
+// taskType changes update schedule from presets and realign fireAt.
+func (s *Store) UpdateEditable(id, name, taskType string, params TaskParams, presets map[string]config.Preset, now time.Time) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := -1
+	for i := range s.list {
+		if s.list[i].ID == id {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return Task{}, fmt.Errorf("task not found")
+	}
+	t := s.list[idx]
+	if taskType == "" {
+		taskType = t.TaskType
+	}
+	if taskType != t.TaskType {
+		p, ok := presets[taskType]
+		if !ok {
+			return Task{}, fmt.Errorf("unknown task type")
+		}
+		for _, other := range s.list {
+			if other.ID == id {
+				continue
+			}
+			if other.WalletID == t.WalletID && other.TaskType == taskType {
+				return Task{}, fmt.Errorf("wallet already has this task type")
+			}
+		}
+		t.TaskType = taskType
+		t.Schedule = p.DefaultSchedule
+		if params.ClaimArg == 0 && p.DefaultParams.ClaimArg != 0 {
+			params.ClaimArg = p.DefaultParams.ClaimArg
+		}
+		if params.BurnAmount == "" && p.DefaultParams.BurnAmount != "" {
+			params.BurnAmount = p.DefaultParams.BurnAmount
+		}
+		if params.GasLimit == 0 && p.DefaultParams.GasLimit != 0 {
+			params.GasLimit = p.DefaultParams.GasLimit
+		}
+	} else if _, ok := presets[taskType]; taskType != "" && !ok {
+		return Task{}, fmt.Errorf("unknown task type")
+	}
+	t.Name = name
+	t.Params = params
+	normalizeFireAtLocked(&t, now)
+	s.list[idx] = t
+	if err := s.saveLocked(); err != nil {
+		return Task{}, err
+	}
+	return t, nil
 }
 
 func (s *Store) Update(t Task) error {

@@ -118,6 +118,18 @@ td.addr-cell {
   width: 16px;
   height: 16px;
 }
+.wallet-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.wallet-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .topbar {
   height: 56px;
