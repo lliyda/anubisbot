@@ -20,13 +20,15 @@ type Config struct {
 	GithubToken string `json:"githubToken,omitempty"` // optional; else GH_TOKEN / gh auth token
 }
 
+const DefaultGithubRepo = "lliyda/anubisbot"
+
 func Defaults() Config {
 	return Config{
 		Listen:     "127.0.0.1:47192",
 		BotHTTP:    "http://127.0.0.1:47193",
 		BotExe:     "anubisbot.exe",
 		PanelExe:   "anubisbot-panel.exe",
-		GithubRepo: "",
+		GithubRepo: DefaultGithubRepo,
 		AssetName:  "anubisbot-windows-amd64.zip",
 	}
 }
@@ -98,7 +100,9 @@ func (s *Store) fillGithubRepoLocked() {
 	}
 	if repo := DetectGithubRepo(s.root); repo != "" {
 		s.cur.GithubRepo = repo
+		return
 	}
+	s.cur.GithubRepo = DefaultGithubRepo
 }
 
 func merge(in Config) Config {
