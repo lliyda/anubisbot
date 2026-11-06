@@ -160,6 +160,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/wallets", s.handleWallets)
 		r.Post("/wallets", s.handleAddWallet)
 		r.Post("/wallets/import", s.handleImportWallet)
+		r.Patch("/wallets/{id}", s.handleRenameWallet)
 		r.Delete("/wallets/{id}", s.handleDeleteWallet)
 		r.Get("/tasks", s.handleListTasks)
 		r.Post("/tasks", s.handleCreateTask)
@@ -723,6 +724,31 @@ func (s *Server) handleImportWallet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, wal)
 }
 
+func (s *Server) handleRenameWallet(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad json")
+		return
+	}
+	wal, err := s.Wallets.Rename(id, body.Name)
+	if err != nil {
+		if err.Error() == "wallet not found" {
+			writeErr(w, 404, err.Error())
+			return
+		}
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if _, err := s.Tasks.SyncWalletName(id, wal.Name); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, wal)
+}
+
 func (s *Server) handleDeleteWallet(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	for _, t := range s.Tasks.List() {
@@ -801,8 +827,13 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad json")
 		return
 	}
+	// Wallet binding is immutable via PATCH.
+	delete(patch, "walletId")
+	delete(patch, "walletAddress")
+	delete(patch, "walletName")
+	delete(patch, "id")
+	delete(patch, "enabled")
 	delete(patch, "schedule") // schedule follows task type only
-	delete(patch, "taskType")
 
 	if raw, ok := patch["fireAt"]; ok {
 		delete(patch, "fireAt")
@@ -831,6 +862,69 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, t)
 			return
 		}
+	}
+
+	_, hasName := patch["name"]
+	_, hasType := patch["taskType"]
+	_, hasParams := patch["params"]
+	if hasName || hasType || hasParams {
+		var name string
+		if hasName {
+			switch v := patch["name"].(type) {
+			case string:
+				name = v
+			case nil:
+				name = ""
+			default:
+				writeErr(w, 400, "invalid name")
+				return
+			}
+		} else if cur, ok := s.Tasks.Get(id); ok {
+			name = cur.Name
+		}
+		taskType := ""
+		if hasType {
+			switch v := patch["taskType"].(type) {
+			case string:
+				taskType = v
+			default:
+				writeErr(w, 400, "invalid taskType")
+				return
+			}
+		}
+		var params tasks.TaskParams
+		if hasParams {
+			b, err := json.Marshal(patch["params"])
+			if err != nil {
+				writeErr(w, 400, "invalid params")
+				return
+			}
+			if err := json.Unmarshal(b, &params); err != nil {
+				writeErr(w, 400, "invalid params")
+				return
+			}
+		} else if cur, ok := s.Tasks.Get(id); ok {
+			params = cur.Params
+		}
+		s.presetsMu.Lock()
+		presets := s.Presets
+		s.presetsMu.Unlock()
+		now := time.Now()
+		if s.Syncer != nil {
+			now = s.Syncer.NowChain()
+		}
+		t, err := s.Tasks.UpdateEditable(id, name, taskType, params, presets, now)
+		if err != nil {
+			msg := err.Error()
+			if msg == "task not found" {
+				writeErr(w, 404, msg)
+				return
+			}
+			writeErr(w, 400, msg)
+			return
+		}
+		writeJSON(w, 200, t)
+		return
 	}
 
 	t, err := s.Tasks.Patch(id, patch)

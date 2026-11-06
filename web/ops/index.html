@@ -119,7 +119,9 @@
 
   <dialog id="taskDialog">
     <form id="taskForm" class="dialog-box dialog-wide">
-      <h3>新建任务</h3>
+      <h3 id="taskFormTitle">新建任务</h3>
+      <input type="hidden" name="taskId" value="" />
+      <input type="hidden" name="walletIdMirror" value="" />
       <label>任务名称<input name="name" placeholder="可选" /></label>
       <label>钱包
         <select name="walletId" id="walletSelect" required></select>
@@ -136,6 +138,18 @@
       <div id="taskArgsFields"></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" id="btnCancelTask">取消</button>
+        <button type="submit" class="btn primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="walletRenameDialog">
+    <form id="walletRenameForm" class="dialog-box">
+      <h3>修改钱包名称</h3>
+      <input type="hidden" name="walletId" value="" />
+      <label>名称<input name="name" required maxlength="64" autocomplete="off" /></label>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" id="btnCancelWalletRename">取消</button>
         <button type="submit" class="btn primary">保存</button>
       </div>
     </form>
