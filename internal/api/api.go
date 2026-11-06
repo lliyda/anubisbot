@@ -318,6 +318,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		"ntpHost":          st.NtpHost,
 		"ntpIntervalSec":   st.NtpIntervalSec,
 		"rpcTimeoutMs":     st.RpcTimeoutMs,
+		"earlyBroadcast":   st.EarlyBroadcastOn(),
 		"mode":             s.mode(),
 	})
 }

@@ -225,49 +225,68 @@ func (s *Scheduler) tick(ctx context.Context) {
 			continue
 		}
 
-		// Broadcast only at/after FireAt (chain time). Early send lets mempool
-		// include the same nonce before claimcap opens and reverts all fanout.
-		if now.Before(fireAt) {
-			continue
-		}
-
+		nRPC := len(activeIDs)
 		for _, rpcID := range activeIDs {
 			lead := leads[rpcID]
 			sk := sendKey(t.ID, fireKey, rpcID)
 
 			s.mu.Lock()
 			already := s.sentFanout[sk]
-			s.mu.Unlock()
 			if already {
+				s.mu.Unlock()
 				continue
 			}
-
-			rtt := rtts[rpcID]
-			s.mu.Lock()
 			s.sentFanout[sk] = true
 			cached = s.cache[t.ID]
-			if !s.firedMark[fk] {
-				s.firedMark[fk] = true
-				tt := t
-				tt.Status = "fired"
-				nowCopy := now
-				tt.LastRunAt = &nowCopy
-				_ = s.Tasks.Update(tt)
-				s.Logs.Add(logstore.Entry{
-					TaskID: t.ID, Wallet: t.WalletName, Event: "fired",
-					Message: fmt.Sprintf("fanout start sendAt=fireAt rpcs=%d (halfRTT max=%dms sign-only)", len(activeIDs), maxLead),
-				})
-			}
 			taskCopy := t
 			cachedCopy := cached
 			rpcCopy := rpcID
-			rttCopy := rtt
+			rttCopy := rtts[rpcID]
 			leadCopy := lead
 			fkCopy := fk
 			fireKeyCopy := fireKey
+			fireAtCopy := fireAt
+			maxLeadCopy := maxLead
+			nRPCCopy := nRPC
 			s.mu.Unlock()
 
 			go func() {
+				early := true
+				if s.Settings != nil {
+					early = s.Settings.Get().EarlyBroadcastOn()
+				}
+				sendAt := fireAtCopy
+				sendMode := "fireAt"
+				if early && leadCopy > 0 {
+					sendAt = fireAtCopy.Add(-time.Duration(leadCopy) * time.Millisecond)
+					sendMode = "fireAt-halfRTT"
+				}
+				if d := sendAt.Sub(s.Syncer.NowChain()); d > 0 {
+					timer := time.NewTimer(d)
+					select {
+					case <-ctx.Done():
+						timer.Stop()
+						return
+					case <-timer.C:
+					}
+				}
+
+				wake := s.Syncer.NowChain()
+				s.mu.Lock()
+				if !s.firedMark[fkCopy] {
+					s.firedMark[fkCopy] = true
+					tt := taskCopy
+					tt.Status = "fired"
+					wakeCopy := wake
+					tt.LastRunAt = &wakeCopy
+					_ = s.Tasks.Update(tt)
+					s.Logs.Add(logstore.Entry{
+						TaskID: taskCopy.ID, Wallet: taskCopy.WalletName, Event: "fired",
+						Message: fmt.Sprintf("fanout start sendAt=%s rpcs=%d (halfRTT max=%dms)", sendMode, nRPCCopy, maxLeadCopy),
+					})
+				}
+				s.mu.Unlock()
+
 				rpcCtx, cancel := context.WithTimeout(ctx, s.rpcTimeout())
 				defer cancel()
 				res := s.Runner.SendToRPC(rpcCtx, taskCopy, cachedCopy, rpcCopy, rttCopy, leadCopy)
