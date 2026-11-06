@@ -4,8 +4,10 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -481,10 +483,56 @@ func (p *progressReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
+const otaDownloadNetworkHint = "下载失败：网络异常，无法从 GitHub 获取更新包。请检查网络或代理后重试；仍失败可到 GitHub Release 页手动下载 zip 覆盖安装。"
+
+// friendlyDownloadErr maps raw HTTP/transport errors to short Chinese hints (no giant CDN URLs).
+func friendlyDownloadErr(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return errors.New(otaDownloadNetworkHint)
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return errors.New(otaDownloadNetworkHint)
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return errors.New(otaDownloadNetworkHint)
+	}
+	networkHints := []string{
+		"get \"", "timeout", "timed out", "connection reset", "connection refused",
+		"no such host", "network is unreachable", "i/o timeout", "tls:", "x509:",
+		"wsarecv", "wsasend", "broken pipe", "release-assets", "githubusercontent",
+		"use of closed network connection", "forcibly closed",
+	}
+	for _, h := range networkHints {
+		if strings.Contains(lower, h) {
+			return errors.New(otaDownloadNetworkHint)
+		}
+	}
+	// Strip accidental long URLs from leftover messages.
+	if i := strings.Index(msg, "https://"); i >= 0 {
+		end := i
+		for end < len(msg) && msg[end] != ' ' && msg[end] != '"' {
+			end++
+		}
+		msg = strings.TrimSpace(msg[:i] + msg[end:])
+		msg = strings.Trim(msg, ": \"")
+		if msg == "" || strings.EqualFold(msg, "get") {
+			return errors.New(otaDownloadNetworkHint)
+		}
+	}
+	return errors.New(msg)
+}
+
 func (m *BotManager) downloadAsset(ctx context.Context, url, name string, onProgress ProgressFunc) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return "", err
+		return "", friendlyDownloadErr(err)
 	}
 	req.Header.Set("User-Agent", "anubisbot-panel")
 	if tok := resolveGithubToken(m.cfg.Get()); tok != "" {
@@ -493,11 +541,11 @@ func (m *BotManager) downloadAsset(ctx context.Context, url, name string, onProg
 	cli := &http.Client{Timeout: 5 * time.Minute}
 	res, err := cli.Do(req)
 	if err != nil {
-		return "", err
+		return "", friendlyDownloadErr(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
-		return "", fmt.Errorf("download %s", res.Status)
+		return "", fmt.Errorf("下载失败：服务器返回 %s。请稍后重试，或手动下载 Release 包。", res.Status)
 	}
 	f, err := os.CreateTemp(m.cfg.Root(), "ota-dl-*.zip")
 	if err != nil {
@@ -507,7 +555,7 @@ func (m *BotManager) downloadAsset(ctx context.Context, url, name string, onProg
 	pr := &progressReader{r: res.Body, total: res.ContentLength, onProgress: onProgress}
 	if _, err := io.Copy(f, pr); err != nil {
 		os.Remove(f.Name())
-		return "", err
+		return "", friendlyDownloadErr(err)
 	}
 	if onProgress != nil {
 		onProgress("download", pr.read, pr.total, "下载完成")
