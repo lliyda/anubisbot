@@ -7,7 +7,7 @@
   --accent: #0f766e;
   --accent-hover: #0d9488;
   --danger: #b42318;
-  --warn: #b54708;
+  --warn: #eab308;
   --ok: #067647;
   --topbar: #12151a;
   --radius: 10px;
@@ -221,7 +221,7 @@ td.addr-cell {
   background: #66707a; display: inline-block;
 }
 .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(6,118,71,0.2); }
-.dot.warn { background: var(--warn); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 0 3px rgba(234,179,8,0.25); }
 .dot.bad { background: var(--danger); }
 
 .shell { display: flex; min-height: calc(100% - 56px); min-width: 0; width: 100%; }
