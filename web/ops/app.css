@@ -337,6 +337,9 @@ td.addr-cell {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
 .table td.actions {
   overflow: visible;
   text-overflow: clip;
