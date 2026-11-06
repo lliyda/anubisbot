@@ -70,6 +70,9 @@ func RunUI(store *Store, bot *BotManager) {
 		verCombo        *walk.ComboBox
 		verRow          *walk.Composite
 		verTargetLbl    *walk.Label
+		startBtn        *walk.PushButton
+		stopBtn         *walk.PushButton
+		restartBtn      *walk.PushButton
 		checkUpdateBtn  *walk.PushButton
 		installBtn      *walk.PushButton
 		restartPanelBtn *walk.PushButton
@@ -79,6 +82,9 @@ func RunUI(store *Store, bot *BotManager) {
 		restartRow      *walk.Composite // HSpacer + restartWrap; whole row toggled
 		progressBar     *walk.ProgressBar
 		progressLbl     *walk.Label
+		trayStartAct    *walk.Action
+		trayStopAct     *walk.Action
+		trayRestartAct  *walk.Action
 		busyMu          sync.Mutex
 		busy            bool
 		showMu          sync.Mutex
@@ -89,6 +95,27 @@ func RunUI(store *Store, bot *BotManager) {
 		panelPendingExe string
 		panelPendingNew string
 	)
+
+	setServiceControls := func(running bool) {
+		if startBtn != nil {
+			startBtn.SetEnabled(!running)
+		}
+		if stopBtn != nil {
+			stopBtn.SetEnabled(running)
+		}
+		if restartBtn != nil {
+			restartBtn.SetEnabled(running)
+		}
+		if trayStartAct != nil {
+			_ = trayStartAct.SetEnabled(!running)
+		}
+		if trayStopAct != nil {
+			_ = trayStopAct.SetEnabled(running)
+		}
+		if trayRestartAct != nil {
+			_ = trayRestartAct.SetEnabled(running)
+		}
+	}
 
 	clearPanelPending := func() {
 		panelPendingExe = ""
@@ -348,35 +375,43 @@ func RunUI(store *Store, bot *BotManager) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		h, err := bot.FetchHealth(ctx)
+		panelVer := version.String()
+		running := err == nil
 		text := "● 离线 · 服务不可达"
-		display := version.String()
 		botVer := ""
-		if err == nil {
+		runLabel := "离线"
+		if running {
 			ver, _ := h["version"].(string)
 			mode, _ := h["mode"].(string)
 			off := h["offsetMs"]
-			text = fmt.Sprintf("● 运行中 · v%s · %v · 时钟偏移 %vms", ver, mode, off)
+			text = fmt.Sprintf("● 运行中 · %v · 时钟偏移 %vms", mode, off)
 			if v := strings.TrimSpace(ver); v != "" {
-				display = v
 				botVer = v
+				runLabel = v
+			} else {
+				runLabel = "未知"
 			}
 		}
+		verText := fmt.Sprintf("面板 %s · 运行中 %s", panelVer, runLabel)
+		titleText := "Anubisbot 面板 — " + panelVer
+		tipText := "Anubisbot 面板 " + panelVer
 		if mw != nil {
 			mw.Synchronize(func() {
 				if statusLbl != nil {
 					_ = statusLbl.SetText(text)
 				}
 				if verLbl != nil {
-					_ = verLbl.SetText("面板 " + display)
+					_ = verLbl.SetText(verText)
 				}
-				_ = mw.SetTitle("Anubisbot 面板 — " + display)
+				_ = mw.SetTitle(titleText)
 				if ni != nil {
-					_ = ni.SetToolTip("Anubisbot 面板 " + display)
+					_ = ni.SetToolTip(tipText)
 				}
+				setServiceControls(running)
 				refreshLogs()
 			})
 		}
-		// Keep OTA「当前」 in sync with live bot version (not panel build when offline).
+		// Keep OTA「当前」 in sync with live bot (server) version when available.
 		if botVer == "" {
 			return
 		}
@@ -732,7 +767,7 @@ func RunUI(store *Store, bot *BotManager) {
 					},
 					Label{
 						AssignTo: &verLbl,
-						Text:     "面板 " + version.String(),
+						Text:     "面板 " + version.String() + " · 运行中 …",
 						Font:     Font{Family: "Segoe UI", PointSize: 9},
 					},
 					HSpacer{},
@@ -752,13 +787,13 @@ func RunUI(store *Store, bot *BotManager) {
 						Layout: HBox{Spacing: 6},
 						Children: []Widget{
 							PushButton{Text: "打开网页", MinSize: Size{Width: 80}, MaxSize: Size{Width: 80}, OnClicked: openOps},
-							PushButton{Text: "启动", MinSize: Size{Width: 64}, MaxSize: Size{Width: 64}, OnClicked: func() {
+							PushButton{AssignTo: &startBtn, Text: "启动", MinSize: Size{Width: 64}, MaxSize: Size{Width: 64}, OnClicked: func() {
 								runAsync(func() error { return bot.Start() }, "服务已启动")
 							}},
-							PushButton{Text: "停止", MinSize: Size{Width: 64}, MaxSize: Size{Width: 64}, OnClicked: func() {
+							PushButton{AssignTo: &stopBtn, Text: "停止", MinSize: Size{Width: 64}, MaxSize: Size{Width: 64}, OnClicked: func() {
 								runAsync(func() error { return bot.Stop() }, "服务已停止")
 							}},
-							PushButton{Text: "重启", MinSize: Size{Width: 64}, MaxSize: Size{Width: 64}, OnClicked: func() {
+							PushButton{AssignTo: &restartBtn, Text: "重启", MinSize: Size{Width: 64}, MaxSize: Size{Width: 64}, OnClicked: func() {
 								runAsync(func() error { return bot.Restart() }, "服务已重启")
 							}},
 							PushButton{Text: "刷新", MinSize: Size{Width: 64}, MaxSize: Size{Width: 64}, OnClicked: func() { go refreshStatus() }},
@@ -950,16 +985,17 @@ func RunUI(store *Store, bot *BotManager) {
 	_ = ni.SetToolTip("Anubisbot 面板 " + version.String())
 	_ = ni.SetVisible(true)
 
-	addTray := func(text string, fn func()) {
+	addTray := func(text string, fn func()) *walk.Action {
 		act := walk.NewAction()
 		_ = act.SetText(text)
 		act.Triggered().Attach(fn)
 		ni.ContextMenu().Actions().Add(act)
+		return act
 	}
 	addTray("打开运维页", openOps)
-	addTray("启动服务", func() { runAsync(func() error { return bot.Start() }, "") })
-	addTray("停止服务", func() { runAsync(func() error { return bot.Stop() }, "") })
-	addTray("重启服务", func() { runAsync(func() error { return bot.Restart() }, "") })
+	trayStartAct = addTray("启动服务", func() { runAsync(func() error { return bot.Start() }, "") })
+	trayStopAct = addTray("停止服务", func() { runAsync(func() error { return bot.Stop() }, "") })
+	trayRestartAct = addTray("重启服务", func() { runAsync(func() error { return bot.Restart() }, "") })
 	ni.ContextMenu().Actions().Add(walk.NewSeparatorAction())
 	addTray("打开控制窗", showWindow)
 	addTray("检查更新", doCheckUpdate)
@@ -969,6 +1005,7 @@ func RunUI(store *Store, bot *BotManager) {
 		_ = ni.Dispose()
 		walk.App().Exit(0)
 	})
+	setServiceControls(false)
 
 	ni.MouseDown().Attach(func(x, y int, button walk.MouseButton) {
 		if button == walk.LeftButton {
