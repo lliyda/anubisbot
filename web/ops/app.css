@@ -123,6 +123,7 @@ td.addr-cell {
   align-items: center;
   gap: 6px;
   min-width: 0;
+  max-width: 100%;
 }
 .wallet-name-text {
   min-width: 0;

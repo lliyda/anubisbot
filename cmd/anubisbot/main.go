@@ -40,8 +40,6 @@ func main() {
 			log.Printf("seeded missing config: %s", rel)
 		}
 	}
-	log.Printf("anubisbot %s starting MODE=%s HTTP=%s", version.String(), env.Mode, env.HTTPAddr)
-
 	chain, err := config.LoadChain(env.ChainConfigPath)
 	if err != nil {
 		log.Fatal(err)
@@ -174,6 +172,7 @@ func main() {
 		WebFS:       openWebFS(),
 	}
 	srvAPI.ApplyMode(mode)
+	log.Printf("anubisbot %s starting MODE=%s HTTP=%s", version.String(), mode, env.HTTPAddr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
