@@ -1339,7 +1339,7 @@ function bind() {
       }
       try {
         await api("/mode", { method: "PUT", body: JSON.stringify({ mode: "live", confirm: true }) });
-        toast("已切换到 LIVE（独立钱包/任务）");
+        toast("已切换到 LIVE（真实上链）");
       } catch (err) {
         e.target.checked = false;
         toast(err.message, true);
@@ -1347,7 +1347,7 @@ function bind() {
     } else {
       try {
         await api("/mode", { method: "PUT", body: JSON.stringify({ mode: "sim" }) });
-        toast("已切换到 SIM（独立钱包/任务）");
+        toast("已切换到 SIM（模拟任务）");
       } catch (err) {
         toast(err.message, true);
       }
