@@ -1188,6 +1188,7 @@ function openSettings(tab = "general") {
   api("/settings").then((st) => {
     const f = $("#settingsForm");
     f.signLeadMs.value = st.signLeadMs;
+    f.earlyBroadcast.checked = st.earlyBroadcast !== false;
     f.rpcTimeoutMs.value = st.rpcTimeoutMs || 12000;
     f.batchConcurrency.value = st.batchConcurrency;
     f.gasMultiplier.value = st.gasMultiplier;
@@ -2013,6 +2014,7 @@ function bind() {
         method: "PUT",
         body: JSON.stringify({
           signLeadMs: Number(fd.get("signLeadMs")),
+          earlyBroadcast: fd.get("earlyBroadcast") === "on",
           rpcTimeoutMs: Number(fd.get("rpcTimeoutMs")) || 12000,
           batchConcurrency: Number(fd.get("batchConcurrency")),
           gasMultiplier: Number(fd.get("gasMultiplier")),

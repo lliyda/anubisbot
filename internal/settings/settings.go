@@ -17,6 +17,18 @@ type Settings struct {
 	NtpIntervalSec   int     `json:"ntpIntervalSec"`
 	RpcTimeoutMs     int     `json:"rpcTimeoutMs"` // 广播发送 + 等收据共用
 	Mode             string  `json:"mode"`         // sim | live，重启后恢复
+	// EarlyBroadcast: nil/缺省 → 默认 true；显式 false 可关。开启后按每路 halfRTT 提前广播。
+	EarlyBroadcast *bool `json:"earlyBroadcast"`
+}
+
+func boolPtr(v bool) *bool { return &v }
+
+// EarlyBroadcastOn reports whether half-RTT early send is enabled (default true).
+func (s Settings) EarlyBroadcastOn() bool {
+	if s.EarlyBroadcast == nil {
+		return true
+	}
+	return *s.EarlyBroadcast
 }
 
 func Defaults() Settings {
@@ -29,6 +41,7 @@ func Defaults() Settings {
 		NtpIntervalSec:   30,
 		RpcTimeoutMs:     12000,
 		Mode:             "sim",
+		EarlyBroadcast:   boolPtr(true),
 	}
 }
 
@@ -84,6 +97,9 @@ func mergeDefaults(in Settings) Settings {
 	if in.Mode == "live" || in.Mode == "sim" {
 		d.Mode = in.Mode
 	}
+	if in.EarlyBroadcast != nil {
+		d.EarlyBroadcast = boolPtr(*in.EarlyBroadcast)
+	}
 	return d
 }
 
@@ -120,6 +136,9 @@ func (s *Store) Update(patch Settings) (Settings, error) {
 	}
 	if patch.Mode == "live" || patch.Mode == "sim" {
 		cur.Mode = patch.Mode
+	}
+	if patch.EarlyBroadcast != nil {
+		cur.EarlyBroadcast = boolPtr(*patch.EarlyBroadcast)
 	}
 	s.cur = cur
 	if err := s.saveLocked(); err != nil {
