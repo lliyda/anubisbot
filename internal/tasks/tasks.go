@@ -144,9 +144,7 @@ func (s *Store) Create(t Task, presets map[string]config.Preset) (Task, error) {
 		if t.Params.BurnAmount == "" {
 			t.Params.BurnAmount = p.DefaultParams.BurnAmount
 		}
-		if t.Name == "" {
-			t.Name = p.Label
-		}
+		// Name stays empty unless the client set it — never auto-fill from Label.
 	}
 	s.list = append(s.list, t)
 	if err := s.saveLocked(); err != nil {
@@ -311,7 +309,8 @@ func (s *Store) Patch(id string, patch map[string]any) (Task, error) {
 	return Task{}, fmt.Errorf("task not found")
 }
 
-// UpdateEditable updates name, taskType, and params from the edit dialog.
+// UpdateEditable updates name, taskType, and editable gas/args from the edit dialog.
+// Other params fields (claimArg, burnAmount, fireDelayMs) are preserved.
 // taskType changes update schedule from presets and realign fireAt.
 func (s *Store) UpdateEditable(id, name, taskType string, params TaskParams, presets map[string]config.Preset, now time.Time) (Task, error) {
 	s.mu.Lock()
@@ -330,7 +329,9 @@ func (s *Store) UpdateEditable(id, name, taskType string, params TaskParams, pre
 	if taskType == "" {
 		taskType = t.TaskType
 	}
-	if taskType != t.TaskType {
+	typeChanged := taskType != t.TaskType
+	var newPreset config.Preset
+	if typeChanged {
 		p, ok := presets[taskType]
 		if !ok {
 			return Task{}, fmt.Errorf("unknown task type")
@@ -345,20 +346,31 @@ func (s *Store) UpdateEditable(id, name, taskType string, params TaskParams, pre
 		}
 		t.TaskType = taskType
 		t.Schedule = p.DefaultSchedule
-		if params.ClaimArg == 0 && p.DefaultParams.ClaimArg != 0 {
-			params.ClaimArg = p.DefaultParams.ClaimArg
-		}
-		if params.BurnAmount == "" && p.DefaultParams.BurnAmount != "" {
-			params.BurnAmount = p.DefaultParams.BurnAmount
-		}
-		if params.GasLimit == 0 && p.DefaultParams.GasLimit != 0 {
-			params.GasLimit = p.DefaultParams.GasLimit
-		}
+		newPreset = p
 	} else if _, ok := presets[taskType]; taskType != "" && !ok {
 		return Task{}, fmt.Errorf("unknown task type")
 	}
+	merged := t.Params
+	if params.GasLimit != 0 {
+		merged.GasLimit = params.GasLimit
+	}
+	merged.GasPriceGwei = params.GasPriceGwei
+	if params.Args != nil {
+		merged.Args = append([]string(nil), params.Args...)
+	}
+	if typeChanged {
+		if merged.ClaimArg == 0 && newPreset.DefaultParams.ClaimArg != 0 {
+			merged.ClaimArg = newPreset.DefaultParams.ClaimArg
+		}
+		if merged.BurnAmount == "" && newPreset.DefaultParams.BurnAmount != "" {
+			merged.BurnAmount = newPreset.DefaultParams.BurnAmount
+		}
+		if merged.GasLimit == 0 && newPreset.DefaultParams.GasLimit != 0 {
+			merged.GasLimit = newPreset.DefaultParams.GasLimit
+		}
+	}
 	t.Name = name
-	t.Params = params
+	t.Params = merged
 	normalizeFireAtLocked(&t, now)
 	s.list[idx] = t
 	if err := s.saveLocked(); err != nil {

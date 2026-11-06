@@ -12,6 +12,7 @@ const state = {
   allowByTask: {},
   selectedTaskId: null,
   selectedPresetId: null,
+  editingTaskId: null,
   taskFilter: "",
   explorer: "https://browser.anubispace.org",
   sig: { tasks: "", wallets: "", logs: "", rpc: "" },
@@ -948,12 +949,12 @@ function renderLogs(force = false) {
   }).join("");
 }
 
-function fillTypeSelect() {
+function fillTypeSelect(opts = {}) {
   const sel = $("#typeSelect");
   sel.innerHTML = Object.entries(state.presets).map(([k, p]) =>
     `<option value="${k}">${escapeHtml(p.label)}</option>`
   ).join("");
-  updateTypeDesc();
+  if (!opts.skipDesc) updateTypeDesc();
 }
 
 function fillWalletSelect() {
@@ -1049,7 +1050,7 @@ function fillTaskSelects(preferId) {
 
 function updateTypeDesc() {
   const form = $("#taskForm");
-  const editing = !!(form?.taskId?.value);
+  const editing = !!(state.editingTaskId || form?.taskId?.value);
   const gweiEl = form?.querySelector('[name="gasPriceGwei"]');
   const keepGwei = editing && gweiEl ? gweiEl.value : null;
   const t = $("#typeSelect").value;
@@ -1076,6 +1077,7 @@ function updateTypeDesc() {
 function resetTaskDialogMode() {
   const form = $("#taskForm");
   if (!form) return;
+  state.editingTaskId = null;
   form.taskId.value = "";
   form.walletIdMirror.value = "";
   const title = $("#taskFormTitle");
@@ -1087,12 +1089,21 @@ function resetTaskDialogMode() {
   }
 }
 
+function taskNameForForm(task) {
+  const raw = (task?.name || "").trim();
+  if (!raw) return "";
+  const label = (state.presets[task.taskType]?.label || "").trim();
+  if (label && raw === label) return "";
+  return raw;
+}
+
 function openNewTaskDialog() {
   const form = $("#taskForm");
   form.reset();
   resetTaskDialogMode();
   fillTypeSelect();
   fillWalletSelect();
+  form.name.value = "";
   $("#taskDialog").showModal();
 }
 
@@ -1100,11 +1111,12 @@ function openEditTaskDialog(task) {
   if (!task) return;
   const form = $("#taskForm");
   form.reset();
-  fillTypeSelect();
+  fillTypeSelect({ skipDesc: true });
   fillWalletSelect();
+  state.editingTaskId = task.id;
   form.taskId.value = task.id;
   form.walletIdMirror.value = task.walletId || "";
-  form.name.value = task.name || "";
+  form.name.value = taskNameForForm(task);
   const sel = $("#walletSelect");
   if (sel) {
     sel.value = task.walletId || "";
@@ -1627,11 +1639,11 @@ function bind() {
   $("#taskForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
-    const taskId = (fd.get("taskId") || "").toString().trim();
+    const taskId = (state.editingTaskId || fd.get("taskId") || "").toString().trim();
     const taskType = fd.get("taskType");
     const params = buildTaskParamsFromForm(fd, taskType);
     const walletId = taskId
-      ? (fd.get("walletIdMirror") || "").toString()
+      ? (fd.get("walletIdMirror") || state.tasks.find((t) => t.id === taskId)?.walletId || "").toString()
       : (fd.get("walletId") || "").toString();
     const dup = state.tasks.find(
       (t) => t.walletId === walletId && t.taskType === taskType && t.id !== taskId
@@ -1646,12 +1658,13 @@ function bind() {
       );
       return;
     }
+    const name = (fd.get("name") || "").toString().trim();
     try {
       if (taskId) {
         await api(`/tasks/${taskId}`, {
           method: "PATCH",
           body: JSON.stringify({
-            name: (fd.get("name") || "").toString(),
+            name,
             taskType,
             params,
           }),
@@ -1661,7 +1674,7 @@ function bind() {
         await api("/tasks", {
           method: "POST",
           body: JSON.stringify({
-            name: fd.get("name") || undefined,
+            name: name || undefined,
             walletId,
             taskType,
             enabled: true,
