@@ -689,11 +689,12 @@ function formatTaskRecord(l) {
       }
     }
     const includeMs = ex.includeMs != null && ex.includeMs !== "" ? ex.includeMs : null;
+    const openMs = ex.openMs != null && ex.openMs !== "" ? ex.openMs : null;
     // includeMs is rendered after the tx link; only fall back to elapsedMs in detail when no tx.
     if (includeMs == null && !l.txHash && ex.elapsedMs != null && ex.elapsedMs !== "") {
       detail = [detail, `${ex.elapsedMs}ms`].filter(Boolean).join(" · ");
     }
-    return { bad: !ok, ok, title, detail, includeMs };
+    return { bad: !ok, ok, title, detail, includeMs, openMs };
   }
   return { bad: !!l.error, ok: false, title: l.event, detail: l.message || "" };
 }
@@ -711,11 +712,18 @@ function renderTaskLogRows(box, logs) {
         : `<a href="${state.explorer}/tx/${l.txHash}" target="_blank" rel="noreferrer">${escapeHtml(shortAddr(l.txHash))}</a>`)
       : "";
     const includeMs = row.includeMs != null && row.includeMs !== "" ? row.includeMs : null;
+    const openMs = row.openMs != null && row.openMs !== "" ? row.openMs : null;
+    let chainMs = "";
+    if (includeMs != null && openMs != null) {
+      chainMs = `上链 ${escapeHtml(String(includeMs))}ms (${escapeHtml(String(openMs))}ms)`;
+    } else if (includeMs != null) {
+      chainMs = `上链 ${escapeHtml(String(includeMs))}ms`;
+    }
     let txLine = tx;
-    if (tx && includeMs != null) {
-      txLine = `${tx}<span> · 上链 ${escapeHtml(String(includeMs))}ms</span>`;
-    } else if (!tx && includeMs != null) {
-      txLine = `<span>上链 ${escapeHtml(String(includeMs))}ms</span>`;
+    if (tx && chainMs) {
+      txLine = `${tx}<span> · ${chainMs}</span>`;
+    } else if (!tx && chainMs) {
+      txLine = `<span>${chainMs}</span>`;
     }
     const tone = row.bad ? "err" : row.ok ? "ok" : "";
     return `<div class="log-item ${tone}">

@@ -377,6 +377,7 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 					bn := rec.BlockNumber.Uint64()
 					extra["blockNumber"] = bn
 					extra["txIndex"] = uint64(rec.TransactionIndex)
+					fireAt := time.Unix(0, fireKey).UTC()
 					if !sendAt.IsZero() {
 						ms := receiptAt.Sub(sendAt).Milliseconds()
 						if ms < 0 {
@@ -384,7 +385,11 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 						}
 						extra["includeMs"] = ms
 					}
-					fireAt := time.Unix(0, fireKey).UTC()
+					if openMs := receiptAt.Sub(fireAt).Milliseconds(); openMs >= 0 {
+						extra["openMs"] = openMs
+					} else {
+						extra["openMs"] = int64(0)
+					}
 					extra["fireAtLabel"] = fireAtLabelCST(fireAt)
 					if hb := hourBlockOf(ctx, s.RPC, lastRPC, bn, fireAt); hb > 0 {
 						extra["hourBlock"] = hb
