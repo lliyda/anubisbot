@@ -949,12 +949,20 @@ function renderLogs(force = false) {
   }).join("");
 }
 
+function isTaskDialogOpen() {
+  return !!$("#taskDialog")?.open;
+}
+
 function fillTypeSelect(opts = {}) {
   const sel = $("#typeSelect");
+  if (!sel) return;
+  const prev = sel.value;
   sel.innerHTML = Object.entries(state.presets).map(([k, p]) =>
     `<option value="${k}">${escapeHtml(p.label)}</option>`
   ).join("");
-  if (!opts.skipDesc) updateTypeDesc();
+  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+  // Never clobber an open new/edit form via poll rebuild.
+  if (!opts.skipDesc && !isTaskDialogOpen()) updateTypeDesc();
 }
 
 function fillWalletSelect() {
@@ -1211,7 +1219,9 @@ async function refreshLists() {
   renderTasks();
   renderWallets();
   renderLogs();
-  fillTypeSelect();
+  // Skip while task dialog is open — rebuild would reset type to presets[0]
+  // and look like "jumping back" to the first task.
+  if (!isTaskDialogOpen()) fillTypeSelect();
   fillSimTypeSelect();
   fillSimWalletSelect();
   renderPresetManageList();
