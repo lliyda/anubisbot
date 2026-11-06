@@ -410,8 +410,8 @@ function renderHealthChips() {
   $("#modeToggle").checked = h.mode === "live";
   $("#modeLabel").textContent = (h.mode || "sim").toUpperCase();
   const ids = state.activeIds.length ? state.activeIds : (h.activeIds || []);
-  const leads = h.leads || state.leads || {};
-  const parts = ids.map((id) => leads[id] ?? Math.floor((state.rtts[id] || 0) / 2)).filter((n) => n > 0);
+  const rtts = h.rpcsRtt || state.rtts || {};
+  const parts = ids.map((id) => rtts[id] || 0).filter((n) => n > 0);
   setTextQuiet($("#leadText"), parts.length ? `${parts.join("/")} ms` : "— ms");
   const off = h.offsetMs ?? 0;
   $("#offsetText").textContent = `offset ${off >= 0 ? "+" : ""}${off}ms`;

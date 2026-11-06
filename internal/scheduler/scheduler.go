@@ -225,15 +225,20 @@ func (s *Scheduler) tick(ctx context.Context) {
 			continue
 		}
 
+		// Broadcast only at/after FireAt (chain time). Early send lets mempool
+		// include the same nonce before claimcap opens and reverts all fanout.
+		if now.Before(fireAt) {
+			continue
+		}
+
 		for _, rpcID := range activeIDs {
 			lead := leads[rpcID]
-			sendAt := fireAt.Add(-time.Duration(lead) * time.Millisecond)
 			sk := sendKey(t.ID, fireKey, rpcID)
 
 			s.mu.Lock()
 			already := s.sentFanout[sk]
 			s.mu.Unlock()
-			if already || now.Before(sendAt) {
+			if already {
 				continue
 			}
 
@@ -250,7 +255,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 				_ = s.Tasks.Update(tt)
 				s.Logs.Add(logstore.Entry{
 					TaskID: t.ID, Wallet: t.WalletName, Event: "fired",
-					Message: fmt.Sprintf("fanout start maxLead=%dms rpcs=%d", maxLead, len(activeIDs)),
+					Message: fmt.Sprintf("fanout start sendAt=fireAt rpcs=%d (halfRTT max=%dms sign-only)", len(activeIDs), maxLead),
 				})
 			}
 			taskCopy := t

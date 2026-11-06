@@ -27,8 +27,8 @@ go build -o anubisbot-panel.exe ./cmd/anubisbot-panel
 ## 版本与发布
 
 ```bash
-go build -ldflags "-X anubisbot/internal/version.Version=1.0.23" -o anubisbot.exe ./cmd/anubisbot
-go build -ldflags "-H windowsgui -X anubisbot/internal/version.Version=1.0.23" -o bin/anubisbot-panel.exe ./cmd/anubisbot-panel
+go build -ldflags "-X anubisbot/internal/version.Version=1.0.27" -o anubisbot.exe ./cmd/anubisbot
+go build -ldflags "-H windowsgui -X anubisbot/internal/version.Version=1.0.27" -o bin/anubisbot-panel.exe ./cmd/anubisbot-panel
 ```
 
 GitHub Release 上传 `anubisbot-windows-amd64.zip`（内含上述两个 exe）。在控制窗配置里填写 `owner/repo` 后即可检查/应用 OTA。
