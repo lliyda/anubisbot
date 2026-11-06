@@ -54,14 +54,16 @@ type CheckResult struct {
 
 // ReleaseInfo is kept for install progress / logs.
 type ReleaseInfo struct {
-	TagName   string `json:"tagName"`
-	Name      string `json:"name"`
-	AssetName string `json:"assetName"`
-	AssetURL  string `json:"assetURL"`
-	Current   string `json:"current"`
-	Update    bool   `json:"update"`
-	Body      string `json:"body,omitempty"`
-	Published string `json:"publishedAt,omitempty"`
+	TagName          string `json:"tagName"`
+	Name             string `json:"name"`
+	AssetName        string `json:"assetName"`
+	AssetURL         string `json:"assetURL"`
+	Current          string `json:"current"`
+	Update           bool   `json:"update"`
+	Body             string `json:"body,omitempty"`
+	Published        string `json:"publishedAt,omitempty"`
+	PanelPendingPath string `json:"panelPendingPath,omitempty"` // .new next to running panel; UI restarts to apply
+	PanelExePath     string `json:"panelExePath,omitempty"`     // running panel exe to replace
 }
 
 type ghRelease struct {
@@ -400,11 +402,36 @@ func (m *BotManager) ApplyOTA(ctx context.Context, targetVersion string, onProgr
 		if panelName == "" {
 			panelName = "anubisbot-panel.exe"
 		}
-		panelDst := filepath.Join(m.cfg.Root(), panelName)
-		newPath := panelDst + ".new"
-		if err := copyFile(panelSrc, newPath); err == nil {
-			m.AppendLog("OTA: wrote " + filepath.Base(newPath) + "（面板需手动替换重启）")
+		rootPanel := filepath.Join(m.cfg.Root(), panelName)
+		exePath := rootPanel
+		if self, err := os.Executable(); err == nil {
+			if resolved, err2 := filepath.EvalSymlinks(self); err2 == nil {
+				self = resolved
+			}
+			exePath = self
 		}
+		info.PanelExePath = exePath
+
+		// Prefer .new next to the running panel binary; also mirror beside Root panel if different.
+		pendingPaths := []string{exePath + ".new"}
+		rootNew := rootPanel + ".new"
+		if !sameFilePath(rootNew, exePath+".new") {
+			pendingPaths = append(pendingPaths, rootNew)
+		}
+
+		var wrotePrimary string
+		for _, newPath := range pendingPaths {
+			if err := copyFile(panelSrc, newPath); err != nil {
+				m.AppendLog("OTA: write " + filepath.Base(newPath) + " failed: " + err.Error())
+				continue
+			}
+			m.AppendLog("OTA: wrote " + newPath + "（可点「重启面板以更新」）")
+			if wrotePrimary == "" {
+				wrotePrimary = newPath
+			}
+		}
+		info.PanelPendingPath = wrotePrimary
+
 		binNew := filepath.Join(m.cfg.Root(), "bin", panelName+".new")
 		_ = os.MkdirAll(filepath.Dir(binNew), 0o755)
 		_ = copyFile(panelSrc, binNew)
@@ -545,6 +572,20 @@ func replaceFile(src, dst string) error {
 		return err
 	}
 	return nil
+}
+
+func sameFilePath(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if strings.EqualFold(a, b) {
+		return true
+	}
+	aa, errA := filepath.Abs(a)
+	bb, errB := filepath.Abs(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return strings.EqualFold(aa, bb)
 }
 
 func copyFile(src, dst string) error {

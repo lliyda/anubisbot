@@ -61,26 +61,46 @@ func RunUI(store *Store, bot *BotManager) {
 	defer lockLn.Close()
 
 	var (
-		mw          *walk.MainWindow
-		ni          *walk.NotifyIcon
-		statusLbl   *walk.Label
-		verLbl      *walk.Label
-		updateLbl   *walk.TextLabel
-		logEdit     *walk.TextEdit
-		verCombo    *walk.ComboBox
-		installBtn  *walk.PushButton
-		progressBar *walk.ProgressBar
-		progressLbl *walk.Label
-		busyMu      sync.Mutex
-		busy        bool
-		showMu      sync.Mutex
-		pending       *CheckResult
-		metaByLabel   = map[string]VersionMeta{}
-		labelOrder    []string
-		lastOTALocal  string
-		otaSilentMu   sync.Mutex
-		otaSilentBusy bool
+		mw              *walk.MainWindow
+		ni              *walk.NotifyIcon
+		statusLbl       *walk.Label
+		verLbl          *walk.Label
+		updateLbl       *walk.TextLabel
+		logEdit         *walk.TextEdit
+		verCombo        *walk.ComboBox
+		installBtn      *walk.PushButton
+		restartPanelBtn *walk.PushButton
+		progressBar     *walk.ProgressBar
+		progressLbl     *walk.Label
+		busyMu          sync.Mutex
+		busy            bool
+		showMu          sync.Mutex
+		pending         *CheckResult
+		metaByLabel     = map[string]VersionMeta{}
+		labelOrder      []string
+		lastOTALocal    string
+		otaSilentMu     sync.Mutex
+		otaSilentBusy   bool
+		panelPendingExe string
+		panelPendingNew string
 	)
+
+	clearPanelPending := func() {
+		panelPendingExe = ""
+		panelPendingNew = ""
+		if restartPanelBtn != nil {
+			restartPanelBtn.SetVisible(false)
+			restartPanelBtn.SetEnabled(false)
+		}
+	}
+	showPanelPending := func(exePath, newPath string) {
+		panelPendingExe = exePath
+		panelPendingNew = newPath
+		if restartPanelBtn != nil {
+			restartPanelBtn.SetVisible(true)
+			restartPanelBtn.SetEnabled(true)
+		}
+	}
 
 	resetProgress := func() {
 		if progressBar != nil {
@@ -523,6 +543,49 @@ func RunUI(store *Store, bot *BotManager) {
 		}()
 	}
 
+	doRestartPanelToUpdate := func() {
+		if isBusy() {
+			return
+		}
+		exePath := panelPendingExe
+		newPath := panelPendingNew
+		if exePath == "" || newPath == "" {
+			setUpdateStatus("没有待应用的面板更新")
+			return
+		}
+		if _, err := os.Stat(newPath); err != nil {
+			clearPanelPending()
+			setUpdateStatus("面板更新文件已失效，请重新安装该版本")
+			bot.AppendLog("面板更新：.new 不存在")
+			return
+		}
+		setBusy(true)
+		if restartPanelBtn != nil {
+			restartPanelBtn.SetEnabled(false)
+		}
+		setUpdateStatus("正在重启面板以应用更新…")
+		bot.AppendLog("用户确认：重启面板以更新")
+		if err := SchedulePanelReplaceAndExit(exePath, newPath); err != nil {
+			setBusy(false)
+			if restartPanelBtn != nil {
+				restartPanelBtn.SetEnabled(true)
+			}
+			fallback := "重启面板失败：" + err.Error() + "。可手动将 " + filepath.Base(newPath) + " 替换为面板程序后重启。"
+			setUpdateStatus(fallback)
+			bot.AppendLog("❌ " + fallback)
+			refreshLogs()
+			return
+		}
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			if mw != nil {
+				mw.Synchronize(func() { walk.App().Exit(0) })
+			} else {
+				os.Exit(0)
+			}
+		}()
+	}
+
 	onApplyDone := func(remoteV string, info *ReleaseInfo, err error) {
 		setBusy(false)
 		syncInstallButton()
@@ -540,7 +603,13 @@ func RunUI(store *Store, bot *BotManager) {
 		if info != nil && info.TagName != "" {
 			tag = info.TagName
 		}
-		msg := "已安装 " + tag + "。服务已重启；如需面板自身更新请替换 anubisbot-panel.exe.new 后重启面板。"
+		msg := "已安装 " + tag + "。服务已重启。"
+		if info != nil && info.PanelPendingPath != "" && info.PanelExePath != "" {
+			showPanelPending(info.PanelExePath, info.PanelPendingPath)
+			msg = "已安装 " + tag + "。服务已重启。面板更新已就绪，可点击「重启面板以更新」应用；也可稍后手动重启。"
+		} else {
+			clearPanelPending()
+		}
 		setUpdateStatus(msg)
 		bot.AppendLog("✅ " + msg)
 		if info != nil && info.Body != "" {
@@ -705,6 +774,16 @@ func RunUI(store *Store, bot *BotManager) {
 								MaxSize:   Size{Width: 108},
 								Enabled:   false,
 								OnClicked: doInstallSelected,
+							},
+							PushButton{
+								AssignTo:           &restartPanelBtn,
+								Text:               "重启面板以更新",
+								MinSize:            Size{Width: 120},
+								MaxSize:            Size{Width: 120},
+								Enabled:            false,
+								Visible:            false,
+								AlwaysConsumeSpace: false,
+								OnClicked:          doRestartPanelToUpdate,
 							},
 						},
 					},

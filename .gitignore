@@ -22,3 +22,5 @@ vendor/
 *.syso
 anubisbot-panel.exe~
 anubisbot.exe~
+panel-update.ps1
+panel-update.log
