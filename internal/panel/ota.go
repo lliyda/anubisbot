@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"anubisbot/internal/version"
 )
 
 var (
@@ -159,10 +161,14 @@ func pickAsset(rel ghRelease, want string) (name, url string) {
 }
 
 func (m *BotManager) localVersion(ctx context.Context) string {
+	// Prefer running bot (server) version for OTA "current" matching.
 	if h, err := m.FetchHealth(ctx); err == nil {
 		if v, ok := h["version"].(string); ok && strings.TrimSpace(v) != "" {
 			return normalizeTag(v)
 		}
+	}
+	if v := strings.TrimSpace(version.String()); v != "" {
+		return normalizeTag(v)
 	}
 	return "dev"
 }
