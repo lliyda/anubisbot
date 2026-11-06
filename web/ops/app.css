@@ -580,8 +580,16 @@ td.actions {
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 
 dialog {
-  border: 0; border-radius: 14px; padding: 0; box-shadow: var(--shadow);
-  max-width: 440px; width: calc(100% - 32px);
+  border: 0;
+  border-radius: 14px;
+  padding: 0;
+  box-shadow: var(--shadow);
+  max-width: 440px;
+  width: calc(100% - 32px);
+  background: #fff;
+  color: var(--ink);
+  /* Clip children to radius; scrolling belongs on inner .dialog-box, not the dialog itself. */
+  overflow: hidden;
 }
 dialog::backdrop { background: rgba(18,21,26,0.45); }
 .dialog-box { padding: 20px; display: grid; gap: 12px; }
@@ -616,14 +624,27 @@ dialog::backdrop { background: rgba(18,21,26,0.45); }
   width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  max-height: min(85vh, 720px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 12px;
+}
+.dialog-settings .settings-head,
+.dialog-settings #settingsTabs {
+  flex: 0 0 auto;
+}
+.dialog-settings .settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-x: hidden;
+  overflow-y: auto;
 }
 #settingsDialog {
   max-width: 560px;
   width: min(560px, calc(100vw - 32px));
   box-sizing: border-box;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
 }
 #settingsDialog .tabs {
   flex-wrap: wrap;

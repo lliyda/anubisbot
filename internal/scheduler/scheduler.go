@@ -369,7 +369,11 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 						anyOK = false
 						extra["ok"] = false
 						tt.Status = "failed"
-						tt.LastError = "tx reverted on-chain"
+						reason := s.RPC.RevertReason(ctx, lastRPC, lastHash, rec.BlockNumber)
+						if reason != "" {
+							extra["revertReason"] = reason
+						}
+						tt.LastError = rpc.FormatRevertedOnChain(reason)
 					} else {
 						tt.Status = "success"
 						successRec = rec
@@ -404,11 +408,6 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 	}
 	extra["elapsedMs"] = elapsedMs
 
-	includeSuffix := ""
-	if v, ok := extra["includeMs"].(int64); ok {
-		includeSuffix = fmt.Sprintf(" · 上链 %dms", v)
-	}
-
 	isBond := burnbond.IsBondClaimContract(preset.To)
 	if anyOK && successRec != nil && isBond {
 		if formatted, _, n := burnbond.SumClaimedLGNS(successRec); n > 0 && formatted != "" {
@@ -422,9 +421,14 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 	msg := "失败"
 	ev := "result"
 	if anyOK {
-		msg = formatSuccessMessage(extra, amt, elapsedMs, includeSuffix)
+		msg = formatSuccessMessage(extra, amt, elapsedMs)
 	} else if tt.LastError != "" {
-		msg = "失败 · " + tt.LastError + includeSuffix
+		// UI appends includeMs after the tx link; keep message as amount · error only.
+		if amt != "" {
+			msg = amt + " · " + tt.LastError
+		} else {
+			msg = tt.LastError
+		}
 	}
 	entry := s.Logs.Add(logstore.Entry{
 		TaskID: t.ID, Wallet: t.WalletName, Event: ev,
@@ -464,10 +468,6 @@ func (s *Scheduler) backfillClaimedAmount(entryID string, rec *types.Receipt, am
 		}
 		e.Extra["claimedLGNS"] = formatted
 		delete(e.Extra, "claimedPending")
-		includeSuffix := ""
-		if v, ok := e.Extra["includeMs"].(int64); ok {
-			includeSuffix = fmt.Sprintf(" · 上链 %dms", v)
-		}
 		elapsed := int64(0)
 		if v, ok := e.Extra["elapsedMs"].(int64); ok {
 			elapsed = v
@@ -476,7 +476,7 @@ func (s *Scheduler) backfillClaimedAmount(entryID string, rec *types.Receipt, am
 		if a, ok := e.Extra["amount"].(string); ok && a != "" {
 			amt = a
 		}
-		e.Message = formatSuccessMessage(e.Extra, amt, elapsed, includeSuffix)
+		e.Message = formatSuccessMessage(e.Extra, amt, elapsed)
 	})
 }
 
@@ -488,7 +488,7 @@ func fireAtLabelCST(fireAt time.Time) string {
 	return fmt.Sprintf("%d点%02d分", t.Hour(), t.Minute())
 }
 
-func formatSuccessMessage(extra map[string]any, amt string, elapsedMs int64, includeSuffix string) string {
+func formatSuccessMessage(extra map[string]any, amt string, elapsedMs int64) string {
 	title := "成功"
 	if v, ok := extra["claimedLGNS"].(string); ok && v != "" {
 		title = "成功 => " + v + " LGNS"
@@ -507,8 +507,7 @@ func formatSuccessMessage(extra map[string]any, amt string, elapsedMs int64, inc
 			}
 		}
 		parts = append(parts, fmt.Sprintf("块内第 %d 笔", idx+1), fmt.Sprintf("高度 %d", bn))
-		msg := strings.Join(parts, " · ")
-		return msg + includeSuffix
+		return strings.Join(parts, " · ")
 	}
 	return fmt.Sprintf("%s · %s · %dms", title, amt, elapsedMs)
 }

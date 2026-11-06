@@ -435,11 +435,13 @@ func decodeCallErr(err error) string {
 	if err == nil {
 		return ""
 	}
-	msg := err.Error()
-	if i := strings.Index(msg, "execution reverted"); i >= 0 {
-		return msg[i:]
+	if reason := rpc.DecodeRevertError(err); reason != "" {
+		if strings.HasPrefix(strings.ToLower(reason), "execution reverted") {
+			return reason
+		}
+		return "execution reverted: " + reason
 	}
-	return msg
+	return err.Error()
 }
 
 func (r *Runner) gasOpts(ctx context.Context, t tasks.Task, preset config.Preset) (uint64, *big.Int, error) {

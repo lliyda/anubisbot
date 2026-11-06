@@ -153,51 +153,53 @@
         <button type="button" class="tab" data-tab="sim">模拟执行</button>
       </div>
 
-      <div class="tab-panel active" id="tab-general">
-        <p class="desc">当前模式由顶栏切换（只读）：<strong id="settingsModeHint">SIM</strong></p>
-        <form id="settingsForm" class="form compact">
-          <label>签名提前量 (ms)<input name="signLeadMs" type="number" min="0" /></label>
-          <p class="desc">广播提前量固定为各 RPC 延迟的一半（RTT/2），不再使用松弛量。</p>
-          <label>RPC 超时 (ms)<input name="rpcTimeoutMs" type="number" min="1000" step="1000" /></label>
-          <p class="desc">同时用于各路广播发送与上链等收据。</p>
-          <label>批量并发<input name="batchConcurrency" type="number" min="1" /></label>
-          <label>Gas 倍率<input name="gasMultiplier" type="number" step="0.05" min="0.1" /></label>
-          <label>NTP 服务器<input name="ntpHost" placeholder="pool.ntp.org" /></label>
-          <label>Offset 同步间隔 (秒)<input name="ntpIntervalSec" type="number" min="5" step="1" /></label>
-          <p class="desc">用 NTP 校准本机时钟偏差（毫秒级）。间隔最小 5 秒，建议 30～60。</p>
-          <div class="form-actions">
-            <button type="submit" class="btn primary">保存通用设置</button>
-          </div>
-        </form>
-      </div>
-
-      <div class="tab-panel" id="tab-params">
-        <div class="manage-toolbar">
-          <button type="button" class="btn secondary" id="btnAddPreset">新建任务类型</button>
+      <div class="settings-body">
+        <div class="tab-panel active" id="tab-general">
+          <p class="desc">当前模式由顶栏切换（只读）：<strong id="settingsModeHint">SIM</strong></p>
+          <form id="settingsForm" class="form compact">
+            <label>签名提前量 (ms)<input name="signLeadMs" type="number" min="0" /></label>
+            <p class="desc">广播提前量固定为各 RPC 延迟的一半（RTT/2），不再使用松弛量。</p>
+            <label>RPC 超时 (ms)<input name="rpcTimeoutMs" type="number" min="1000" step="1000" /></label>
+            <p class="desc">同时用于各路广播发送与上链等收据。</p>
+            <label>批量并发<input name="batchConcurrency" type="number" min="1" /></label>
+            <label>Gas 倍率<input name="gasMultiplier" type="number" step="0.05" min="0.1" /></label>
+            <label>NTP 服务器<input name="ntpHost" placeholder="pool.ntp.org" /></label>
+            <label>Offset 同步间隔 (秒)<input name="ntpIntervalSec" type="number" min="5" step="1" /></label>
+            <p class="desc">用 NTP 校准本机时钟偏差（毫秒级）。间隔最小 5 秒，建议 30～60。</p>
+            <div class="form-actions">
+              <button type="submit" class="btn primary">保存通用设置</button>
+            </div>
+          </form>
         </div>
-        <div class="task-manage-list" id="presetManageList"></div>
-        <p class="desc">点击「编辑」修改类型，或「新建任务类型」添加。</p>
-      </div>
 
-      <div class="tab-panel" id="tab-sim">
-        <form id="simForm" class="form compact">
-          <label>选择任务类型
-            <select id="simTypeSelect" required></select>
-          </label>
-          <p class="desc" id="simTypeDesc"></p>
-          <label>选择钱包
-            <select id="simWalletSelect"></select>
-          </label>
-          <label>from 地址
-            <input id="simFromInput" class="mono" placeholder="0x…" spellcheck="false" autocomplete="off" />
-          </label>
-          <p class="desc">用任务类型默认参数做 eth_call；须填写 from。不上链、不改任务状态。</p>
-          <div class="form-actions">
-            <button type="button" class="btn primary" id="btnSimulate">立即模拟</button>
+        <div class="tab-panel" id="tab-params">
+          <div class="manage-toolbar">
+            <button type="button" class="btn secondary" id="btnAddPreset">新建任务类型</button>
           </div>
-          <pre class="sim-result" id="simResult">尚未模拟</pre>
-          <p class="sim-summary" id="simResultSummary"></p>
-        </form>
+          <div class="task-manage-list" id="presetManageList"></div>
+          <p class="desc">点击「编辑」修改类型，或「新建任务类型」添加。</p>
+        </div>
+
+        <div class="tab-panel" id="tab-sim">
+          <form id="simForm" class="form compact">
+            <label>选择任务类型
+              <select id="simTypeSelect" required></select>
+            </label>
+            <p class="desc" id="simTypeDesc"></p>
+            <label>选择钱包
+              <select id="simWalletSelect"></select>
+            </label>
+            <label>from 地址
+              <input id="simFromInput" class="mono" placeholder="0x…" spellcheck="false" autocomplete="off" />
+            </label>
+            <p class="desc">用任务类型默认参数做 eth_call；须填写 from。不上链、不改任务状态。</p>
+            <div class="form-actions">
+              <button type="button" class="btn primary" id="btnSimulate">立即模拟</button>
+            </div>
+            <pre class="sim-result" id="simResult">尚未模拟</pre>
+            <p class="sim-summary" id="simResultSummary"></p>
+          </form>
+        </div>
       </div>
     </div>
   </dialog>

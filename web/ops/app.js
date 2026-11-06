@@ -662,15 +662,23 @@ function formatTaskRecord(l) {
       parts.push(`块内第 ${idx} 笔`, `高度 ${ex.blockNumber}`);
       detail = parts.filter(Boolean).join(" · ");
     } else if (!ok) {
-      detail = [amt, l.error || l.message || "失败"].filter(Boolean).join(" · ");
+      const err = l.error || "";
+      // Prefer amount · LastError (already contains "tx reverted… · reason : …").
+      // Avoid duplicating when message is already "claimAll · tx reverted…".
+      if (err) {
+        detail = [amt, err].filter(Boolean).join(" · ");
+      } else if (l.message) {
+        detail = String(l.message).replace(/^失败\s*·\s*/, "");
+      } else {
+        detail = amt || "失败";
+      }
     }
     const includeMs = ex.includeMs != null && ex.includeMs !== "" ? ex.includeMs : null;
-    if (includeMs != null) {
-      detail = [detail, `上链 ${includeMs}ms`].filter(Boolean).join(" · ");
-    } else if (ex.elapsedMs != null && ex.elapsedMs !== "") {
+    // includeMs is rendered after the tx link; only fall back to elapsedMs in detail when no tx.
+    if (includeMs == null && !l.txHash && ex.elapsedMs != null && ex.elapsedMs !== "") {
       detail = [detail, `${ex.elapsedMs}ms`].filter(Boolean).join(" · ");
     }
-    return { bad: !ok, title, detail };
+    return { bad: !ok, title, detail, includeMs };
   }
   return { bad: !!l.error, title: l.event, detail: l.message || "" };
 }
@@ -687,12 +695,19 @@ function renderTaskLogRows(box, logs) {
         ? `<span class="addr">${escapeHtml(l.txHash)}</span>`
         : `<a href="${state.explorer}/tx/${l.txHash}" target="_blank" rel="noreferrer">${escapeHtml(shortAddr(l.txHash))}</a>`)
       : "";
+    const includeMs = row.includeMs != null && row.includeMs !== "" ? row.includeMs : null;
+    let txLine = tx;
+    if (tx && includeMs != null) {
+      txLine = `${tx}<span> · 上链 ${escapeHtml(String(includeMs))}ms</span>`;
+    } else if (!tx && includeMs != null) {
+      txLine = `<span>上链 ${escapeHtml(String(includeMs))}ms</span>`;
+    }
     return `<div class="log-item ${row.bad ? "err" : ""}">
       <div class="t">${new Date(l.at).toLocaleString()}</div>
       <div>
         <strong>${escapeHtml(row.title)}</strong>
         ${row.detail ? `<div>${escapeHtml(row.detail)}</div>` : ""}
-        ${tx}
+        ${txLine}
       </div>
     </div>`;
   }).join("");
