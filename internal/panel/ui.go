@@ -73,7 +73,10 @@ func RunUI(store *Store, bot *BotManager) {
 		checkUpdateBtn  *walk.PushButton
 		installBtn      *walk.PushButton
 		restartPanelBtn *walk.PushButton
-		otaBtnCol       *walk.Composite // right column: check / install / restart
+		checkWrap       *walk.Composite // fixed 120 so short label cannot shrink
+		installWrap     *walk.Composite
+		restartWrap     *walk.Composite
+		restartRow      *walk.Composite // HSpacer + restartWrap; whole row toggled
 		progressBar     *walk.ProgressBar
 		progressLbl     *walk.Label
 		busyMu          sync.Mutex
@@ -90,17 +93,33 @@ func RunUI(store *Store, bot *BotManager) {
 	clearPanelPending := func() {
 		panelPendingExe = ""
 		panelPendingNew = ""
+		if restartRow != nil {
+			restartRow.SetVisible(false)
+		}
+		if restartWrap != nil {
+			restartWrap.SetVisible(false)
+		}
 		if restartPanelBtn != nil {
 			restartPanelBtn.SetVisible(false)
 			restartPanelBtn.SetEnabled(false)
 		}
 	}
+	var forceOTAColumnSizes func()
 	showPanelPending := func(exePath, newPath string) {
 		panelPendingExe = exePath
 		panelPendingNew = newPath
+		if restartRow != nil {
+			restartRow.SetVisible(true)
+		}
+		if restartWrap != nil {
+			restartWrap.SetVisible(true)
+		}
 		if restartPanelBtn != nil {
 			restartPanelBtn.SetVisible(true)
 			restartPanelBtn.SetEnabled(true)
+		}
+		if forceOTAColumnSizes != nil {
+			forceOTAColumnSizes()
 		}
 	}
 
@@ -205,7 +224,7 @@ func RunUI(store *Store, bot *BotManager) {
 		return meta, ok
 	}
 
-	// 布局稿: fixed 120px right column — check / install / restart stacked; same width always.
+	// Fixed 120 wraps keep check/install/restart equal width and right-aligned across rows.
 	const otaBtnW, otaBtnH = 120, 22
 	forceOTABtnSize := func(btn *walk.PushButton) {
 		if btn == nil {
@@ -215,11 +234,19 @@ func RunUI(store *Store, bot *BotManager) {
 		_ = btn.SetMinMaxSize(sz, sz)
 		_ = btn.SetSize(sz)
 	}
-	forceOTAColumnSizes := func() {
-		if otaBtnCol != nil {
-			_ = otaBtnCol.SetMinMaxSize(walk.Size{Width: otaBtnW, Height: 0}, walk.Size{Width: otaBtnW, Height: 200})
-			_ = otaBtnCol.SetWidth(otaBtnW)
+	forceOTAWrapSize := func(wrap *walk.Composite) {
+		if wrap == nil {
+			return
 		}
+		sz := walk.Size{Width: otaBtnW, Height: otaBtnH}
+		_ = wrap.SetMinMaxSize(sz, sz)
+		_ = wrap.SetSize(sz)
+		_ = wrap.SetWidth(otaBtnW)
+	}
+	forceOTAColumnSizes = func() {
+		forceOTAWrapSize(checkWrap)
+		forceOTAWrapSize(installWrap)
+		forceOTAWrapSize(restartWrap)
 		forceOTABtnSize(checkUpdateBtn)
 		forceOTABtnSize(installBtn)
 		forceOTABtnSize(restartPanelBtn)
@@ -235,6 +262,9 @@ func RunUI(store *Store, bot *BotManager) {
 		}
 		if verCombo != nil {
 			verCombo.SetVisible(show)
+		}
+		if installWrap != nil {
+			installWrap.SetVisible(show)
 		}
 		if installBtn != nil {
 			installBtn.SetVisible(show)
@@ -260,6 +290,7 @@ func RunUI(store *Store, bot *BotManager) {
 			label = "重新安装此版本"
 		}
 		_ = installBtn.SetText(label)
+		forceOTAWrapSize(installWrap)
 		forceOTABtnSize(installBtn)
 		if !ok || pending == nil {
 			installBtn.SetEnabled(false)
@@ -397,12 +428,10 @@ func RunUI(store *Store, bot *BotManager) {
 	openOps := func() {
 		url := strings.TrimRight(store.Get().BotHTTP, "/") + "/"
 		if err := OpenBrowser(url); err != nil {
-			setUpdateStatus("打开网页失败：" + err.Error())
 			bot.AppendLog("❌ 打开网页: " + err.Error())
 			return
 		}
 		bot.AppendLog("opened " + url)
-		setUpdateStatus("已打开运维页")
 		refreshStatus()
 	}
 
@@ -477,7 +506,6 @@ func RunUI(store *Store, bot *BotManager) {
 								return
 							}
 							bot.AppendLog("config saved")
-							setUpdateStatus("配置已保存")
 							dlg.Accept()
 						}},
 						PushButton{Text: "取消", OnClicked: func() { dlg.Cancel() }},
@@ -486,7 +514,6 @@ func RunUI(store *Store, bot *BotManager) {
 			},
 		}.Run(mw)
 		if err != nil {
-			setUpdateStatus("打开配置失败：" + err.Error())
 			bot.AppendLog("❌ 配置窗口: " + err.Error())
 		}
 	}
@@ -745,54 +772,25 @@ func RunUI(store *Store, bot *BotManager) {
 				Layout:        VBox{Margins: pad, Spacing: 8},
 				StretchFactor: 1,
 				Children: []Widget{
-					// JSON 布局稿: status|check(120); 目标+combo|install(120); 运行日志|restart(120); log 通栏.
+					// HSpacer before each 120 wrap pins buttons to the row's right edge.
+					// (Bare HBox leaves residual excess after the last widget → cross-row right edges drift;
+					// Grid stretched col1 and left the buttons floating mid-cell.)
 					Composite{
-						StretchFactor: 0,
-						Layout:        HBox{Spacing: 10, Alignment: AlignHNearVNear},
+						StretchFactor: 1,
+						Layout:        HBox{Spacing: 8, Alignment: AlignHNearVCenter},
 						Children: []Widget{
-							Composite{
-								StretchFactor: 1,
-								Layout:        VBox{MarginsZero: true, Spacing: 9},
-								Children: []Widget{
-									TextLabel{
-										AssignTo:      &updateLbl,
-										Text:          "点击「检查更新」查询版本；可选历史版本升级或降级，不会自动安装。",
-										StretchFactor: 1,
-										MinSize:       Size{Width: 380, Height: 30},
-										MaxSize:       Size{Height: 30},
-									},
-									Composite{
-										AssignTo:           &verRow,
-										StretchFactor:      1,
-										Visible:            false,
-										AlwaysConsumeSpace: false,
-										Layout:             HBox{Spacing: 6, Alignment: AlignHNearVCenter},
-										Children: []Widget{
-											Label{
-												AssignTo: &verTargetLbl,
-												Text:     "目标版本",
-												MinSize:  Size{Width: 56},
-												MaxSize:  Size{Width: 56},
-												Visible:  false,
-											},
-											ComboBox{
-												AssignTo:              &verCombo,
-												Editable:              false,
-												StretchFactor:         1,
-												MinSize:               Size{Width: 246, Height: 22},
-												MaxSize:               Size{Height: 22},
-												Visible:               false,
-												OnCurrentIndexChanged: func() { syncInstallButton() },
-											},
-										},
-									},
-								},
+							TextLabel{
+								AssignTo: &updateLbl,
+								Text:     "点击「检查更新」查询版本；可选历史版本升级或降级，不会自动安装。",
+								MinSize:  Size{Width: 380, Height: 22},
+								MaxSize:  Size{Height: 36},
 							},
+							HSpacer{},
 							Composite{
-								AssignTo: &otaBtnCol,
-								MinSize:  Size{Width: 120},
-								MaxSize:  Size{Width: 120},
-								Layout:   VBox{MarginsZero: true, Spacing: 8},
+								AssignTo: &checkWrap,
+								MinSize:  Size{Width: 120, Height: 22},
+								MaxSize:  Size{Width: 120, Height: 22},
+								Layout:   HBox{MarginsZero: true, SpacingZero: true},
 								Children: []Widget{
 									PushButton{
 										AssignTo:  &checkUpdateBtn,
@@ -801,25 +799,78 @@ func RunUI(store *Store, bot *BotManager) {
 										MaxSize:   Size{Width: 120, Height: 22},
 										OnClicked: doCheckUpdate,
 									},
+								},
+							},
+						},
+					},
+					Composite{
+						AssignTo:           &verRow,
+						StretchFactor:      1,
+						Visible:            false,
+						AlwaysConsumeSpace: false,
+						Layout:             HBox{Spacing: 8, Alignment: AlignHNearVCenter},
+						Children: []Widget{
+							Label{
+								AssignTo: &verTargetLbl,
+								Text:     "目标版本",
+								MinSize:  Size{Width: 56},
+								MaxSize:  Size{Width: 56},
+								Visible:  false,
+							},
+							ComboBox{
+								AssignTo:              &verCombo,
+								Editable:              false,
+								MinSize:               Size{Width: 160, Height: 22},
+								MaxSize:               Size{Height: 22},
+								Visible:               false,
+								OnCurrentIndexChanged: func() { syncInstallButton() },
+							},
+							HSpacer{},
+							Composite{
+								AssignTo:           &installWrap,
+								MinSize:            Size{Width: 120, Height: 22},
+								MaxSize:            Size{Width: 120, Height: 22},
+								Visible:            false,
+								AlwaysConsumeSpace: false,
+								Layout:             HBox{MarginsZero: true, SpacingZero: true},
+								Children: []Widget{
 									PushButton{
-										AssignTo:           &installBtn,
-										Text:               "安装选中版本",
-										MinSize:            Size{Width: 120, Height: 22},
-										MaxSize:            Size{Width: 120, Height: 22},
-										Enabled:            false,
-										Visible:            false,
-										AlwaysConsumeSpace: false,
-										OnClicked:          doInstallSelected,
+										AssignTo:  &installBtn,
+										Text:      "安装选中版本",
+										MinSize:   Size{Width: 120, Height: 22},
+										MaxSize:   Size{Width: 120, Height: 22},
+										Enabled:   false,
+										Visible:   false,
+										OnClicked: doInstallSelected,
 									},
+								},
+							},
+						},
+					},
+					Composite{
+						AssignTo:           &restartRow,
+						StretchFactor:      1,
+						Visible:            false,
+						AlwaysConsumeSpace: false,
+						Layout:             HBox{Spacing: 8, Alignment: AlignHNearVCenter},
+						Children: []Widget{
+							HSpacer{},
+							Composite{
+								AssignTo:           &restartWrap,
+								MinSize:            Size{Width: 120, Height: 22},
+								MaxSize:            Size{Width: 120, Height: 22},
+								Visible:            false,
+								AlwaysConsumeSpace: false,
+								Layout:             HBox{MarginsZero: true, SpacingZero: true},
+								Children: []Widget{
 									PushButton{
-										AssignTo:           &restartPanelBtn,
-										Text:               "重启面板以更新",
-										MinSize:            Size{Width: 120, Height: 22},
-										MaxSize:            Size{Width: 120, Height: 22},
-										Enabled:            false,
-										Visible:            false,
-										AlwaysConsumeSpace: false,
-										OnClicked:          doRestartPanelToUpdate,
+										AssignTo:  &restartPanelBtn,
+										Text:      "重启面板以更新",
+										MinSize:   Size{Width: 120, Height: 22},
+										MaxSize:   Size{Width: 120, Height: 22},
+										Enabled:   false,
+										Visible:   false,
+										OnClicked: doRestartPanelToUpdate,
 									},
 								},
 							},
