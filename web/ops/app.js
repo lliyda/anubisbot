@@ -278,6 +278,17 @@ function fmtCountdown(targetISO) {
   return h > 0 ? `${pad(h)}:${pad(m)}:${pad(sec)}` : `${pad(m)}:${pad(sec)}`;
 }
 
+/** Roll an expired absolute target forward by stepMs until it is in the future. */
+function rollCountdownTarget(iso, stepMs) {
+  if (!iso || !stepMs) return iso;
+  let ms = new Date(iso).getTime();
+  if (Number.isNaN(ms)) return iso;
+  const now = Date.now();
+  if (ms > now) return iso;
+  while (ms <= now) ms += stepMs;
+  return new Date(ms).toISOString();
+}
+
 function setTextQuiet(el, text) {
   if (el && el.textContent !== text) el.textContent = text;
 }
@@ -489,6 +500,7 @@ function renderTasks(force = false) {
     filter: state.taskFilter,
     rows: list.map((t) => [
       t.id, t.enabled, t.name, t.status, t.fireAt, t.schedule, t.taskType, t.walletName, t.walletAddress,
+      unreadRecordOutcome(t.id),
     ]),
   });
   if (!force && sig === state.sig.tasks) return;
@@ -1188,12 +1200,23 @@ function openSettings(tab = "general") {
 
 async function refreshHealth() {
   const health = await api("/health");
+  // Full replace calibrates nextHour/next1159; tickCountdowns owns the chip text.
   state.health = health;
   state.explorer = health.explorer || state.explorer;
   state.activeIds = health.activeIds || [];
   state.rtts = health.rpcsRtt || {};
   state.leads = health.leads || {};
   renderHealthChips();
+  tickCountdowns();
+}
+
+/** Light log poll so record dots update without waiting for full refreshLists. */
+async function refreshLogsLight() {
+  const failedOnly = $("#failedOnly")?.checked;
+  const logs = await api("/logs?failedOnly=" + (failedOnly ? "1" : "0"));
+  state.logs = logs.logs || [];
+  renderLogs();
+  renderTasks();
 }
 
 async function refreshLists() {
@@ -1247,6 +1270,11 @@ async function refreshAll() {
 function tickCountdowns() {
   const h = state.health;
   if (!h) return;
+  // Frontend self-drives: roll past targets locally; health poll only calibrates.
+  const hour = rollCountdownTarget(h.nextHour, 3600 * 1000);
+  if (hour && hour !== h.nextHour) h.nextHour = hour;
+  const helix = rollCountdownTarget(h.next1159, 24 * 3600 * 1000);
+  if (helix && helix !== h.next1159) h.next1159 = helix;
   setTextQuiet($("#cdHour"), fmtCountdown(h.nextHour));
   setTextQuiet($("#cdHelix"), fmtCountdown(h.next1159));
 }
@@ -2138,6 +2166,9 @@ function bind() {
 bind();
 bindAddrHoverTip();
 refreshAll().catch((e) => toast(e.message, true));
-setInterval(() => { refreshHealth().catch(() => {}); }, 2000);
+setInterval(() => {
+  refreshHealth().catch(() => {});
+  refreshLogsLight().catch(() => {});
+}, 2000);
 setInterval(() => { refreshLists().catch(() => {}); }, 8000);
 setInterval(tickCountdowns, 1000);
