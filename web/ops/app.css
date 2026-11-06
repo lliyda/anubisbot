@@ -609,8 +609,29 @@ dialog::backdrop { background: rgba(18,21,26,0.45); }
   resize: vertical;
   box-sizing: border-box;
 }
-.dialog-settings { max-width: none; width: min(560px, calc(100vw - 32px)); }
-#settingsDialog { max-width: 560px; }
+.dialog-settings {
+  max-width: 100%;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+#settingsDialog {
+  max-width: 560px;
+  width: min(560px, calc(100vw - 32px));
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+#settingsDialog .tabs {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+#settingsDialog .tab-panel,
+#settingsDialog .form {
+  min-width: 0;
+  max-width: 100%;
+}
 #rpcDialog { max-width: 560px; width: min(560px, calc(100vw - 32px)); }
 #rpcEditDialog { max-width: 440px; width: min(440px, calc(100vw - 32px)); }
 #rpcDialog .rpc-manage {
