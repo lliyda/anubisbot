@@ -31,6 +31,13 @@ func main() {
 	// Mirror process logs into ops web「运行日志」; panel captures stdout separately.
 	log.SetOutput(io.MultiWriter(os.Stdout, &logstore.LineWriter{Store: logs, Event: "console"}))
 	log.SetFlags(log.LstdFlags)
+	if seeded, err := config.EnsureRuntime("."); err != nil {
+		log.Fatal(err)
+	} else {
+		for _, rel := range seeded {
+			log.Printf("seeded missing config: %s", rel)
+		}
+	}
 	log.Printf("anubisbot %s starting MODE=%s HTTP=%s", version.String(), env.Mode, env.HTTPAddr)
 
 	chain, err := config.LoadChain(env.ChainConfigPath)
@@ -220,4 +227,6 @@ func mustChdir() {
 			return
 		}
 	}
+	// Bare install (exe-only zip): use directory of the executable and seed defaults later.
+	_ = os.Chdir(dir)
 }

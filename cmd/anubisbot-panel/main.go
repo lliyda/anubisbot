@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"anubisbot/internal/config"
 	"anubisbot/internal/panel"
 	"anubisbot/internal/version"
 )
@@ -24,6 +25,13 @@ func main() {
 	}
 	if err := os.Chdir(root); err != nil {
 		log.Fatal(err)
+	}
+	if seeded, err := config.EnsureRuntime(root); err != nil {
+		log.Fatal(err)
+	} else {
+		for _, rel := range seeded {
+			fmt.Printf("seeded missing config: %s\n", rel)
+		}
 	}
 
 	cfgPath := filepath.Join(root, "data", "panel.json")

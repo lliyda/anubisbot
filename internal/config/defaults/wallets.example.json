@@ -1,0 +1,19 @@
+{
+  "wallets": [
+    {
+      "id": "w1",
+      "name": "主号",
+      "address": "0x0000000000000000000000000000000000000001",
+      "source": "privateKey",
+      "privateKeyEnv": "WALLET_W1_KEY"
+    },
+    {
+      "id": "w2",
+      "name": "批量2",
+      "address": "0x0000000000000000000000000000000000000002",
+      "source": "privateKey",
+      "privateKeyEnv": "WALLET_W2_KEY",
+      "path": "m/44'/60'/0'/0/1"
+    }
+  ]
+}

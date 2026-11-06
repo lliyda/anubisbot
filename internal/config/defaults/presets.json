@@ -1,0 +1,80 @@
+{
+  "fixed_price": {
+    "label": "固定价销毁债券",
+    "description": "整点领取全部可领 LGNS（claimAll），对应页面「领取全部」。合约 0x3f40…E71F。",
+    "icon": "diamond",
+    "to": "0x3f403751975e1EB06d95901f7FF246513444E71F",
+    "abi": [
+      {
+        "type": "function",
+        "name": "claimAll",
+        "stateMutability": "nonpayable",
+        "inputs": [],
+        "outputs": []
+      }
+    ],
+    "function": "claimAll",
+    "method": "claimAll",
+    "selector": "d1058e59",
+    "defaultSchedule": "hourly",
+    "defaultParams": {
+      "gasLimit": 500000
+    },
+    "needsLgnsApprove": false
+  },
+  "helix": {
+    "label": "AI 算力机器人（Helix）",
+    "description": "每天 11:59 开放，全网 400 份，约 3 秒抢光。烧 500 LGNS 换 2 倍算力。",
+    "icon": "robot",
+    "to": "0x9E68F61E2615cc1D2C4a2D0026bFc1EBFdf68C1b",
+    "abi": [
+      {
+        "type": "function",
+        "name": "burnForPower",
+        "stateMutability": "nonpayable",
+        "inputs": [
+          {
+            "name": "amount",
+            "type": "uint256"
+          }
+        ],
+        "outputs": []
+      }
+    ],
+    "function": "burnForPower",
+    "method": "burnForPower",
+    "selector": "ffa6b88a",
+    "defaultSchedule": "daily_1159_cst",
+    "defaultParams": {
+      "args": [
+        "500000000000"
+      ],
+      "burnAmount": "500000000000",
+      "gasLimit": 675000
+    },
+    "needsLgnsApprove": true
+  },
+  "lgns_burn": {
+    "label": "LGNS 销毁债券",
+    "description": "整点领取全部可领 LGNS（claimAll），对应页面「领取全部」。合约 0x11b1…7c69。",
+    "icon": "fire",
+    "to": "0x11b10C9827c5B7071E96fcAa143B4e6E86b17c69",
+    "abi": [
+      {
+        "type": "function",
+        "name": "claimAll",
+        "stateMutability": "nonpayable",
+        "inputs": [],
+        "outputs": []
+      }
+    ],
+    "function": "claimAll",
+    "method": "claimAll",
+    "selector": "d1058e59",
+    "defaultSchedule": "hourly",
+    "defaultParams": {
+      "gasLimit": 500000
+    },
+    "needsLgnsApprove": false
+  }
+}
