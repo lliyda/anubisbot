@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"anubisbot/internal/timesync"
 	"anubisbot/internal/version"
 	"anubisbot/internal/wallets"
+	webfs "anubisbot/web"
 )
 
 func main() {
@@ -169,7 +171,7 @@ func main() {
 		Sched:       sched,
 		Runner:      runner,
 		Settings:    stStore,
-		WebFS:       os.DirFS("web"),
+		WebFS:       openWebFS(),
 	}
 	srvAPI.ApplyMode(mode)
 
@@ -229,4 +231,12 @@ func mustChdir() {
 	}
 	// Bare install (exe-only zip): use directory of the executable and seed defaults later.
 	_ = os.Chdir(dir)
+}
+
+// openWebFS prefers on-disk web/ for local development; bare installs use embedded assets.
+func openWebFS() fs.FS {
+	if _, err := os.Stat("web/ops/index.html"); err == nil {
+		return os.DirFS("web")
+	}
+	return webfs.FS
 }
