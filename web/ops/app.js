@@ -636,6 +636,7 @@ function formatTaskRecord(l) {
     const rpc = l.rpcId || ex.rpcId || "";
     return {
       bad: false,
+      ok: false,
       title: "广播",
       detail: [amt, rpc ? `RPC ${rpc}` : ""].filter(Boolean).join(" · "),
     };
@@ -678,9 +679,9 @@ function formatTaskRecord(l) {
     if (includeMs == null && !l.txHash && ex.elapsedMs != null && ex.elapsedMs !== "") {
       detail = [detail, `${ex.elapsedMs}ms`].filter(Boolean).join(" · ");
     }
-    return { bad: !ok, title, detail, includeMs };
+    return { bad: !ok, ok, title, detail, includeMs };
   }
-  return { bad: !!l.error, title: l.event, detail: l.message || "" };
+  return { bad: !!l.error, ok: false, title: l.event, detail: l.message || "" };
 }
 
 function renderTaskLogRows(box, logs) {
@@ -702,7 +703,8 @@ function renderTaskLogRows(box, logs) {
     } else if (!tx && includeMs != null) {
       txLine = `<span>上链 ${escapeHtml(String(includeMs))}ms</span>`;
     }
-    return `<div class="log-item ${row.bad ? "err" : ""}">
+    const tone = row.bad ? "err" : row.ok ? "ok" : "";
+    return `<div class="log-item ${tone}">
       <div class="t">${new Date(l.at).toLocaleString()}</div>
       <div>
         <strong>${escapeHtml(row.title)}</strong>
@@ -918,7 +920,8 @@ function renderLogs(force = false) {
       const tx = l.txHash && !String(l.txHash).startsWith("sim-")
         ? `<a href="${state.explorer}/tx/${l.txHash}" target="_blank" rel="noreferrer">${escapeHtml(shortAddr(l.txHash))}</a>`
         : "";
-      return `<div class="log-item ${row.bad || bad ? "err" : ""}">
+      const tone = row.bad || bad ? "err" : row.ok ? "ok" : "";
+      return `<div class="log-item ${tone}">
         <div class="t">${new Date(l.at).toLocaleString()}</div>
         <div>
           <strong>${escapeHtml(row.title)}</strong>

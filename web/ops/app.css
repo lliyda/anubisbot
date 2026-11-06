@@ -546,6 +546,7 @@ td.actions {
   word-break: break-all;
 }
 .log-item.err { background: #fdf2f1; }
+.log-item.ok { background: #eefaf3; }
 #view-logs .panel { width: 100%; }
 #taskLogsList .log-item {
   grid-template-columns: minmax(100px, 140px) minmax(0, 1fr);
