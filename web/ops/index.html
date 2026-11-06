@@ -21,7 +21,7 @@
     <div class="chips">
       <div class="chip"><span class="chip-k">下一整点</span><span class="chip-v mono" id="cdHour">--:--</span></div>
       <div class="chip"><span class="chip-k">Helix 11:59</span><span class="chip-v mono" id="cdHelix">--:--</span></div>
-      <div class="chip"><span class="chip-k">提前广播</span><span class="chip-v mono" id="leadText">— ms</span></div>
+      <div class="chip"><span class="chip-k">RPC延迟</span><span class="chip-v mono" id="leadText">— ms</span></div>
     </div>
     <div class="rpc-box">
       <span class="offset mono" id="offsetText">offset —</span>
@@ -158,7 +158,6 @@
           <p class="desc">当前模式由顶栏切换（只读）：<strong id="settingsModeHint">SIM</strong></p>
           <form id="settingsForm" class="form compact">
             <label>签名提前量 (ms)<input name="signLeadMs" type="number" min="0" /></label>
-            <p class="desc">广播提前量固定为各 RPC 延迟的一半（RTT/2），不再使用松弛量。</p>
             <label>RPC 超时 (ms)<input name="rpcTimeoutMs" type="number" min="1000" step="1000" /></label>
             <p class="desc">同时用于各路广播发送与上链等收据。</p>
             <label>批量并发<input name="batchConcurrency" type="number" min="1" /></label>
