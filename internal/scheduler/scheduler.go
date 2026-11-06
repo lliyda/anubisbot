@@ -191,7 +191,12 @@ func (s *Scheduler) tick(ctx context.Context) {
 	}
 
 	for _, t := range s.Tasks.List() {
-		if t.Status != "armed" || !t.Enabled || t.FireAt == nil {
+		// armed: not yet started; fired: first RPC(s) already sent — must keep
+		// scheduling later-lead RPCs until this fireKey finishes.
+		if !t.Enabled || t.FireAt == nil {
+			continue
+		}
+		if t.Status != "armed" && t.Status != "fired" {
 			continue
 		}
 		fireAt := t.FireAt.UTC()
@@ -199,6 +204,10 @@ func (s *Scheduler) tick(ctx context.Context) {
 		fk := fanKey(t.ID, fireKey)
 
 		s.mu.Lock()
+		if s.finishedMark[fk] {
+			s.mu.Unlock()
+			continue
+		}
 		if _, ok := s.fanoutNeed[fk]; !ok {
 			s.fanoutNeed[fk] = len(activeIDs)
 			s.fanoutOk[fk] = 0

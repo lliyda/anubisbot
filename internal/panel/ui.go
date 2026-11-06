@@ -362,10 +362,8 @@ func RunUI(store *Store, bot *BotManager) {
 				mw.Synchronize(func() {
 					syncInstallButton()
 					if err != nil {
-						setUpdateStatus("操作失败：" + err.Error())
 						bot.AppendLog("❌ " + err.Error())
 					} else if okMsg != "" {
-						setUpdateStatus(okMsg)
 						bot.AppendLog("✅ " + okMsg)
 					}
 					refreshStatus()
