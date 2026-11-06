@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"anubisbot/internal/config"
 )
 
 type BotManager struct {
@@ -95,8 +97,16 @@ func (m *BotManager) Start() error {
 	if _, err := os.Stat(exe); err != nil {
 		return fmt.Errorf("bot exe not found: %s", exe)
 	}
+	root := m.cfg.Root()
+	if seeded, err := config.EnsureRuntime(root); err != nil {
+		return fmt.Errorf("ensure config: %w", err)
+	} else {
+		for _, rel := range seeded {
+			m.AppendLog("seeded missing config: " + rel)
+		}
+	}
 	cmd := exec.Command(exe)
-	cmd.Dir = m.cfg.Root()
+	cmd.Dir = root
 
 	pr, pw := io.Pipe()
 	writers := []io.Writer{pw}

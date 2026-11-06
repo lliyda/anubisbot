@@ -202,7 +202,7 @@ func (s *Server) handleOTAApply(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": "1", "release": info})
 }
 
-// EnsureRoot finds project root containing web/ or go.mod.
+// EnsureRoot finds project root containing web/ or go.mod; otherwise the panel exe directory.
 func EnsureRoot() (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
@@ -216,11 +216,17 @@ func EnsureRoot() (string, error) {
 		if _, err := os.Stat(filepath.Join(dir, "web", "panel")); err == nil {
 			return dir, nil
 		}
+		if _, err := os.Stat(filepath.Join(dir, "config", "chain.json")); err == nil {
+			return dir, nil
+		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break
 		}
 		dir = parent
+	}
+	if exe, err := os.Executable(); err == nil {
+		return filepath.Dir(exe), nil
 	}
 	return wd, nil
 }
