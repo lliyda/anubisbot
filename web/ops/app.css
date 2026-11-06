@@ -490,6 +490,8 @@ td.actions {
   background: var(--danger); pointer-events: none;
   box-shadow: 0 0 0 2px #fff;
 }
+.btn-dot.ok { background: var(--ok); }
+.btn-dot.bad { background: var(--danger); }
 
 .card-list { display: grid; gap: 10px; padding: 16px; }
 .wallet-card {

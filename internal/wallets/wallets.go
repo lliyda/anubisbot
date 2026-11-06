@@ -189,6 +189,11 @@ func (s *Store) ImportMnemonic(name, mnemonic, path string) (Wallet, error) {
 		return Wallet{}, err
 	}
 	hexKey := "0x" + common.Bytes2Hex(crypto.FromECDSA(key))
+	// hdwallet may return btcec curve; go-ethereum Sign requires crypto.S256().
+	key, err = parseHexKey(hexKey)
+	if err != nil {
+		return Wallet{}, err
+	}
 	addr := account.Address.Hex()
 	id := "w" + uuid.NewString()[:8]
 	if name == "" {
@@ -214,7 +219,12 @@ func (s *Store) PrivateKey(id string) (*ecdsa.PrivateKey, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if k, ok := s.keys[id]; ok {
-		return k, nil
+		norm, err := ensureS256(k)
+		if err != nil {
+			return nil, err
+		}
+		s.keys[id] = norm
+		return norm, nil
 	}
 	for i := range s.list {
 		if s.list[i].ID == id {
@@ -222,7 +232,12 @@ func (s *Store) PrivateKey(id string) (*ecdsa.PrivateKey, error) {
 				return nil, err
 			}
 			if k, ok := s.keys[id]; ok {
-				return k, nil
+				norm, err := ensureS256(k)
+				if err != nil {
+					return nil, err
+				}
+				s.keys[id] = norm
+				return norm, nil
 			}
 		}
 	}
@@ -266,6 +281,19 @@ func (s *Store) tryLoadKey(w *Wallet) error {
 
 func parseHexKey(raw string) (*ecdsa.PrivateKey, error) {
 	return crypto.HexToECDSA(strings.TrimPrefix(strings.TrimSpace(raw), "0x"))
+}
+
+// ensureS256 rebuilds the key with crypto.S256 so types.SignTx / crypto.Sign accept it.
+// go-ethereum-hdwallet may return a mathematically identical secp256k1 key whose Curve
+// pointer is btcec, which fails the prv.Curve != S256() check.
+func ensureS256(key *ecdsa.PrivateKey) (*ecdsa.PrivateKey, error) {
+	if key == nil {
+		return nil, fmt.Errorf("nil private key")
+	}
+	if key.Curve == crypto.S256() {
+		return key, nil
+	}
+	return crypto.ToECDSA(crypto.FromECDSA(key))
 }
 
 func isPlaceholder(a string) bool {

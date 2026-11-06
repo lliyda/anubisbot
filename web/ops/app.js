@@ -529,7 +529,10 @@ function renderTasks(force = false) {
       <td class="col-status"><span class="status">${statusDot}${statusLabel(t.status)}</span></td>
       <td class="actions"><div class="actions-row">
         <button type="button" class="btn secondary sm btn-rel" data-act="logs">${
-          hasUnreadLogs(t.id) ? '<i class="btn-dot"></i>' : ""
+          (() => {
+            const o = unreadRecordOutcome(t.id);
+            return o ? `<i class="btn-dot ${o}"></i>` : "";
+          })()
         }记录</button>
         <button type="button" class="btn secondary sm" data-act="run-once">执行一次</button>
         ${preset.needsLgnsApprove
@@ -564,11 +567,28 @@ function newestLogAt(taskId) {
 }
 
 function hasUnreadLogs(taskId) {
-  const newest = newestLogAt(taskId);
-  if (!newest) return false;
+  return !!unreadRecordOutcome(taskId);
+}
+
+/** @returns {"ok"|"bad"|""} 未读成败：有成功→ok；仅失败→bad；无成败新消息→空 */
+function unreadRecordOutcome(taskId) {
   const seen = localStorage.getItem(logSeenKey(taskId));
-  if (!seen) return true;
-  return new Date(newest) > new Date(seen);
+  let hasOk = false;
+  let hasBad = false;
+  for (const l of state.logs || []) {
+    if (l.taskId !== taskId || !l.at) continue;
+    if (seen && !(new Date(l.at) > new Date(seen))) continue;
+    if (l.event === "result") {
+      const ok = (l.extra || {}).ok !== false && !l.error;
+      if (ok) hasOk = true;
+      else hasBad = true;
+    } else if (l.event === "failed" || l.event === "simulate_fail") {
+      hasBad = true;
+    }
+  }
+  if (hasOk) return "ok";
+  if (hasBad) return "bad";
+  return "";
 }
 
 function markLogsSeen(taskId, logs) {
