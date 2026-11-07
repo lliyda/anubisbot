@@ -40,6 +40,7 @@ type Scheduler struct {
 	fanoutHash   map[string]string // best tx hash for this fire
 	fanoutRPC    map[string]string // rpc that first accepted best hash
 	fanoutRTT    map[string]int64
+	fanoutErr    map[string]string    // first RPC error for this fireKey
 	firedMark    map[string]bool      // task marked fired for this fireKey
 	finishedMark map[string]bool      // fanout completed for fireKey
 	fanoutSendAt map[string]time.Time // fanKey -> first successful send wall clock
@@ -79,6 +80,9 @@ func (s *Scheduler) Start(parent context.Context) {
 	}
 	if s.fanoutRTT == nil {
 		s.fanoutRTT = map[string]int64{}
+	}
+	if s.fanoutErr == nil {
+		s.fanoutErr = map[string]string{}
 	}
 	if s.firedMark == nil {
 		s.firedMark = map[string]bool{}
@@ -215,6 +219,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 			s.fanoutHash[fk] = ""
 			s.fanoutRPC[fk] = ""
 			s.fanoutRTT[fk] = 0
+			s.fanoutErr[fk] = ""
 		}
 		cached := s.cache[t.ID]
 		live := s.Runner != nil && s.Runner.Mode == "live"
@@ -251,10 +256,11 @@ func (s *Scheduler) tick(ctx context.Context) {
 			s.mu.Unlock()
 
 			go func() {
-				early := true
+				globalEarly := true
 				if s.Settings != nil {
-					early = s.Settings.Get().EarlyBroadcastOn()
+					globalEarly = s.Settings.Get().EarlyBroadcastOn()
 				}
+				early := taskCopy.EffectiveEarlyBroadcast(globalEarly)
 				sendAt := fireAtCopy
 				sendMode := "fireAt"
 				if early && leadCopy > 0 {
@@ -305,6 +311,8 @@ func (s *Scheduler) tick(ctx context.Context) {
 							s.fanoutSendAt[fkCopy] = time.Now()
 						}
 					}
+				} else if s.fanoutErr[fkCopy] == "" {
+					s.fanoutErr[fkCopy] = res.Error
 				}
 				done := s.fanoutDone[fkCopy]
 				need := s.fanoutNeed[fkCopy]
@@ -417,7 +425,14 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 	} else {
 		tt.Status = "failed"
 		if tt.LastError == "" {
-			tt.LastError = "all rpc fanout failed"
+			s.mu.Lock()
+			errMsg := s.fanoutErr[fk]
+			s.mu.Unlock()
+			if errMsg != "" {
+				tt.LastError = "all rpc fanout failed · " + errMsg
+			} else {
+				tt.LastError = "all rpc fanout failed"
+			}
 		}
 	}
 	extra["ok"] = anyOK
@@ -476,6 +491,7 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 	delete(s.fanoutHash, fk)
 	delete(s.fanoutRPC, fk)
 	delete(s.fanoutRTT, fk)
+	delete(s.fanoutErr, fk)
 	s.mu.Unlock()
 
 	if tt.Schedule != "once" {

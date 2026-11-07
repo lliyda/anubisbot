@@ -171,7 +171,7 @@ func (s *Store) ImportPrivateKey(name, hexKey string) (Wallet, error) {
 	addr := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	id := "w" + uuid.NewString()[:8]
 	if name == "" {
-		name = "钱包 " + id
+		name = defaultWalletName(addr)
 	}
 	w := Wallet{
 		ID: id, Name: name, Address: addr, Source: "privateKey",
@@ -222,7 +222,7 @@ func (s *Store) ImportMnemonic(name, mnemonic, path string) (Wallet, error) {
 	addr := account.Address.Hex()
 	id := "w" + uuid.NewString()[:8]
 	if name == "" {
-		name = "钱包 " + id
+		name = defaultWalletName(addr)
 	}
 	w := Wallet{
 		ID: id, Name: name, Address: addr, Source: "mnemonic", Path: path,
@@ -319,6 +319,17 @@ func ensureS256(key *ecdsa.PrivateKey) (*ecdsa.PrivateKey, error) {
 		return key, nil
 	}
 	return crypto.ToECDSA(crypto.FromECDSA(key))
+}
+
+// defaultWalletName uses "钱包" + last 4 hex chars of the address when import name is empty.
+func defaultWalletName(addr string) string {
+	a := strings.TrimSpace(addr)
+	a = strings.TrimPrefix(a, "0x")
+	a = strings.TrimPrefix(a, "0X")
+	if len(a) > 4 {
+		a = a[len(a)-4:]
+	}
+	return "钱包" + a
 }
 
 func isPlaceholder(a string) bool {
