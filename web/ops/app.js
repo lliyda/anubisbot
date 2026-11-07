@@ -531,7 +531,7 @@ function renderTasks(force = false) {
           : "";
     return `<tr data-id="${t.id}">
       <td class="col-enable"><button type="button" class="toggle ${t.enabled ? "on" : ""}" data-act="enable" aria-label="启用"><i></i></button></td>
-      <td class="col-name" title="${escapeHtml(t.name || label)}">${escapeHtml(t.walletName || "—")}</td>
+      <td class="col-name" title="${escapeHtml(t.walletName || "—")}">${escapeHtml(t.walletName || "—")}</td>
       ${addrCell(t.walletAddress)}
       <td class="col-type"><span class="badge ${escapeHtml(t.taskType)}">${escapeHtml(label)}</span></td>
       <td class="col-schedule">${scheduleLabel(t.schedule)}</td>
@@ -754,8 +754,11 @@ async function openTaskLogs(taskId) {
   const box = $("#taskLogsList");
   if (!dlg || !box) return;
   const typeLabel = state.presets[t?.taskType]?.label || t?.taskType || "";
-  const name = t?.name && t.name !== typeLabel ? t.name : "";
-  if (title) title.textContent = name ? `任务记录 · ${typeLabel} · ${name}` : `任务记录 · ${typeLabel || taskId}`;
+  const walletName = (t?.walletName || "").trim() || taskId;
+  const taskName = t?.name && t.name !== typeLabel ? t.name : "";
+  if (title) {
+    title.textContent = ["任务记录", typeLabel, walletName, taskName].filter(Boolean).join(" · ");
+  }
   box.innerHTML = `<div class="desc">加载中…</div>`;
   dlg.showModal();
   const gen = (state.taskLogsGen = (state.taskLogsGen || 0) + 1);
@@ -829,7 +832,7 @@ function renderWallets(force = false) {
   body.innerHTML = state.wallets.map((w) => {
     const bal = state.balances[w.id] || {};
     return `<tr data-id="${w.id}">
-      <td><div class="wallet-name-cell"><span class="wallet-name-text">${escapeHtml(w.name)}</span><button type="button" class="addr-copy-btn" data-act="edit-wallet-name" title="改名" aria-label="改名">${EDIT_ICON_SVG}</button></div></td>
+      <td><div class="wallet-name-cell"><span class="wallet-name-text" title="${escapeHtml(w.name)}">${escapeHtml(w.name)}</span><button type="button" class="addr-copy-btn" data-act="edit-wallet-name" title="改名" aria-label="改名">${EDIT_ICON_SVG}</button></div></td>
       ${addrCell(w.address)}
       <td>${escapeHtml(sourceLabel(w.source))}</td>
       <td class="mono">${escapeHtml(bal.dai ?? "—")}</td>
@@ -1125,6 +1128,15 @@ function taskNameForForm(task) {
   return raw;
 }
 
+function setEarlyBroadcastRadios(form, value) {
+  const v = value === "on" || value === "off" ? value : "follow";
+  const radios = form?.querySelectorAll('input[name="earlyBroadcast"]');
+  if (!radios?.length) return;
+  radios.forEach((r) => {
+    r.checked = r.value === v;
+  });
+}
+
 function openNewTaskDialog() {
   const form = $("#taskForm");
   form.reset();
@@ -1132,6 +1144,7 @@ function openNewTaskDialog() {
   fillTypeSelect();
   fillWalletSelect();
   form.name.value = "";
+  setEarlyBroadcastRadios(form, "follow");
   $("#taskDialog").showModal();
 }
 
@@ -1156,6 +1169,7 @@ function openEditTaskDialog(task) {
   const p = task.params || {};
   if (p.gasLimit) form.gasLimit.value = p.gasLimit;
   form.gasPriceGwei.value = p.gasPriceGwei != null && p.gasPriceGwei !== "" ? p.gasPriceGwei : "";
+  setEarlyBroadcastRadios(form, task.earlyBroadcast || "follow");
   const preset = state.presets[task.taskType];
   const box = $("#taskArgsFields");
   const resolved = resolveAbiFn(JSON.stringify(preset?.abi || []), presetFnName(preset));
@@ -1706,6 +1720,8 @@ function bind() {
       return;
     }
     const name = (fd.get("name") || "").toString().trim();
+    const earlyRaw = (fd.get("earlyBroadcast") || "follow").toString();
+    const earlyBroadcast = earlyRaw === "on" || earlyRaw === "off" ? earlyRaw : "follow";
     try {
       if (taskId) {
         await api(`/tasks/${taskId}`, {
@@ -1713,6 +1729,7 @@ function bind() {
           body: JSON.stringify({
             name,
             taskType,
+            earlyBroadcast,
             params,
           }),
         });
@@ -1725,6 +1742,7 @@ function bind() {
             walletId,
             taskType,
             enabled: true,
+            earlyBroadcast,
             params,
           }),
         });

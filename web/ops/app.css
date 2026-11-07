@@ -356,9 +356,9 @@ td.addr-cell {
 }
 #taskTable th:nth-child(2),
 #taskTable td.col-name {
-  width: 4.5rem;
-  overflow: visible;
-  text-overflow: clip;
+  width: 8.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #taskTable th:nth-child(3),
 #taskTable td:nth-child(3) {
@@ -601,6 +601,38 @@ td.actions {
   padding-left: 24px;
 }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.radio-row {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+.radio-row legend {
+  padding: 0;
+  margin: 0 0 2px;
+  width: 100%;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.radio-row label.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.radio-row input[type=radio] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex: 0 0 16px;
+  accent-color: var(--accent, #0f766e);
+}
 .desc { margin: 0; font-size: 12px; color: var(--muted); line-height: 1.45; min-height: 0; }
 .form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 

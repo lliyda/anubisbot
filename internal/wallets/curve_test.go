@@ -97,3 +97,40 @@ func TestEnsureS256Nil(t *testing.T) {
 		t.Fatal("expected error for nil key")
 	}
 }
+
+func TestImportEmptyNameUsesWalletPlusLast4(t *testing.T) {
+	t.Setenv("SECRETS_PASSPHRASE", "test-default-name-passphrase")
+	dir := t.TempDir()
+	store, err := LoadWithSecrets(
+		filepath.Join(dir, "wallets.json"),
+		filepath.Join(dir, "secrets.json"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w, err := store.ImportMnemonic("", testMnemonic, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hex := w.Address
+	if len(hex) >= 2 && (hex[:2] == "0x" || hex[:2] == "0X") {
+		hex = hex[2:]
+	}
+	if len(hex) < 4 {
+		t.Fatalf("address too short: %q", w.Address)
+	}
+	want := "钱包" + hex[len(hex)-4:]
+	if w.Name != want {
+		t.Fatalf("Name=%q want %q (addr=%s)", w.Name, want, w.Address)
+	}
+}
+
+func TestDefaultWalletName(t *testing.T) {
+	if got := defaultWalletName("0xC29F96861b1e5f00cac071e6a1139ef5CefCDc34"); got != "钱包Dc34" {
+		t.Fatalf("got %q", got)
+	}
+	if got := defaultWalletName("ab"); got != "钱包ab" {
+		t.Fatalf("short got %q", got)
+	}
+}
