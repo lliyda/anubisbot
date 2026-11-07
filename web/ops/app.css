@@ -113,6 +113,46 @@ td.addr-cell {
   outline: 2px solid rgba(146, 146, 146, 0.45);
   outline-offset: 1px;
 }
+.title-icon-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #929292;
+  cursor: pointer;
+  line-height: 0;
+}
+.title-icon-btn:hover { color: #666666; background: transparent; }
+.title-icon-btn:focus { outline: none; }
+.title-icon-btn:focus-visible {
+  outline: 2px solid rgba(146, 146, 146, 0.45);
+  outline-offset: 1px;
+}
+.title-icon-btn:disabled,
+.title-icon-btn.is-spinning {
+  pointer-events: none;
+  opacity: 0.55;
+}
+.title-icon-btn.is-spinning svg {
+  animation: title-icon-spin 0.8s linear infinite;
+}
+@keyframes title-icon-spin {
+  to { transform: rotate(360deg); }
+}
+.title-icon-btn svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
 .addr-copy-icon {
   display: block;
   width: 16px;

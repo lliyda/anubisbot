@@ -46,4 +46,4 @@ GitHub Release 上传 `anubisbot-windows-amd64.zip`（内含上述两个 exe）�
 | --- | --- |
 | fixed_price | 固定价销毁债券 |
 | lgns_burn | LGNS 销毁债券 |
-| helix | AI 算力机器人（Helix） |
+| helix | AI 算力（Helix） |

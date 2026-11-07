@@ -78,7 +78,12 @@
       <section id="view-wallets" class="view">
         <div class="panel">
           <div class="panel-head">
-            <h1>钱包簿</h1>
+            <div class="panel-head-left">
+              <h1>钱包簿</h1>
+              <button type="button" class="title-icon-btn" id="btnRefreshBalances" title="刷新全部余额" aria-label="刷新全部余额">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+              </button>
+            </div>
             <div class="head-actions">
               <button type="button" class="btn secondary" id="btnImportMnemonic">助记词导入</button>
               <button type="button" class="btn primary" id="btnImportPrivateKey">私钥导入</button>

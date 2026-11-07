@@ -162,6 +162,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/wallets", s.handleAddWallet)
 		r.Post("/wallets/import", s.handleImportWallet)
 		r.Patch("/wallets/{id}", s.handleRenameWallet)
+		r.Post("/wallets/refresh-balances", s.handleRefreshAllWalletBalances)
 		r.Post("/wallets/{id}/refresh-balances", s.handleRefreshWalletBalances)
 		r.Delete("/wallets/{id}", s.handleDeleteWallet)
 		r.Get("/tasks", s.handleListTasks)
@@ -726,6 +727,14 @@ func (s *Server) handleImportWallet(w http.ResponseWriter, r *http.Request) {
 	s.Logs.Add(logstore.Entry{Event: "wallet_import", Wallet: wal.Name, Message: "imported " + wal.ID})
 	s.refreshBalanceCacheAsync()
 	writeJSON(w, 200, wal)
+}
+
+func (s *Server) handleRefreshAllWalletBalances(w http.ResponseWriter, r *http.Request) {
+	mode := s.mode()
+	s.RefreshBalanceCache(mode)
+	writeJSON(w, 200, map[string]any{
+		"balances": s.cachedBalances(mode),
+	})
 }
 
 func (s *Server) handleRefreshWalletBalances(w http.ResponseWriter, r *http.Request) {

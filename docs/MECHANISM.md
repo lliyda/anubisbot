@@ -13,7 +13,7 @@
 
 - **固定价销毁债券** → 默认 `claimAll()` @ `0x3f40…E71F`，整点；任务可改为 `claim(n)` 领指定编号
 - **LGNS 销毁债券** → 默认 `claimAll()` @ `0x11b1…7c69`，整点；任务可改为 `claim(n)` 领指定编号
-- **AI 算力机器人（Helix）** → `burnForPower(500e9)` @ `0x9E68…8C1b`，每日 11:59+08
+- **AI 算力（Helix）** → `burnForPower(500e9)` @ `0x9E68…8C1b`，每日 11:59+08
 
 债券任务参数 `claimMode`：`all`（或空）→ `claimAll()`；`index` → `claim(args[0])`（编号可为 0）。任务编辑与「查看债券」弹窗可切换；切换任务类型会回退为 `claimAll`。
 

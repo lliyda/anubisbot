@@ -35,7 +35,7 @@
     "needsLgnsApprove": false
   },
   "helix": {
-    "label": "AI 算力机器人（Helix）",
+    "label": "AI 算力（Helix）",
     "description": "每天 11:59 开放，全网 400 份，约 3 秒抢光。烧 500 LGNS 换 2 倍算力。",
     "icon": "robot",
     "to": "0x9E68F61E2615cc1D2C4a2D0026bFc1EBFdf68C1b",

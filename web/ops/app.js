@@ -2221,6 +2221,28 @@ function bind() {
     });
   }
 
+  const btnRefreshBalances = $("#btnRefreshBalances");
+  btnRefreshBalances?.addEventListener("click", async () => {
+    if (btnRefreshBalances.disabled) return;
+    btnRefreshBalances.disabled = true;
+    btnRefreshBalances.classList.add("is-spinning");
+    toast("正在刷新全部余额…");
+    try {
+      const res = await api("/wallets/refresh-balances", { method: "POST", body: "{}" });
+      if (res?.balances) {
+        state.balances = res.balances;
+        state.sig.wallets = "";
+        renderWallets(true);
+      }
+      toast("全部余额已更新");
+    } catch (err) {
+      toast(err.message, true);
+    } finally {
+      btnRefreshBalances.disabled = false;
+      btnRefreshBalances.classList.remove("is-spinning");
+    }
+  });
+
   $("#walletBody").addEventListener("dblclick", async (e) => {
     if (e.target.closest(".toggle, [data-act], .addr-link-btn, .addr-copy-btn, input, button, a")) {
       return;
