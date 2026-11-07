@@ -15,10 +15,13 @@ import (
 )
 
 const (
-	selUserDeposits = "08f43333" // userDeposits(address,uint256)
-	selGetClaimable = "6f5244b1" // getClaimable(address,uint256)
-	daiDecimals     = 18
-	depositWorkers  = 8
+	selUserDeposits      = "08f43333" // userDeposits(address,uint256)
+	selGetClaimable      = "6f5244b1" // getClaimable(address,uint256)
+	selAccReleasedFrac   = "e0a12f52" // accReleasedFrac()
+	daiDecimals          = 18
+	depositWorkers       = 8
+	capBpsDenom          = 10000
+	accReleasedFracDenom = 1_000_000
 )
 
 // Deposit is one bond position for a user.
@@ -28,6 +31,7 @@ type Deposit struct {
 	PrincipalDAI    string `json:"principalDAI"`
 	BurnedLGNS      string `json:"burnedLGNS"`
 	ReleasedDAI     string `json:"releasedDAI"`
+	TotalReleaseDAI string `json:"totalReleaseDAI"`
 	ReleasedDisplay string `json:"releasedDisplay"`
 	Claimed         string `json:"claimed"`
 	Claimable       string `json:"claimable"`
@@ -60,6 +64,47 @@ func ContractForTaskType(taskType string) (string, bool) {
 func IsBondTaskType(taskType string) bool {
 	_, ok := ContractForTaskType(taskType)
 	return ok
+}
+
+// computeReleasedDAI mirrors Origin UI:
+//
+//	total    = daiValue * capBps / 10000
+//	delta    = acc > lastAcc ? daiValue * (acc - lastAcc) / 1_000_000 : 0
+//	released = min(releasedDaiValue + delta, total)
+func computeReleasedDAI(daiValue, capBps, releasedDaiValue, lastAcc, acc *big.Int) (released, total *big.Int) {
+	daiValue = bigOrZero(daiValue)
+	capBps = bigOrZero(capBps)
+	releasedDaiValue = bigOrZero(releasedDaiValue)
+	lastAcc = bigOrZero(lastAcc)
+	acc = bigOrZero(acc)
+
+	total = new(big.Int)
+	if daiValue.Sign() > 0 && capBps.Sign() > 0 {
+		total.Mul(daiValue, capBps)
+		total.Div(total, big.NewInt(capBpsDenom))
+	}
+
+	released = new(big.Int).Set(releasedDaiValue)
+	if acc.Cmp(lastAcc) > 0 && daiValue.Sign() > 0 {
+		delta := new(big.Int).Sub(acc, lastAcc)
+		delta.Mul(delta, daiValue)
+		delta.Div(delta, big.NewInt(accReleasedFracDenom))
+		released.Add(released, delta)
+	}
+	if total.Sign() > 0 && released.Cmp(total) > 0 {
+		released.Set(total)
+	}
+	if total.Sign() == 0 {
+		released = big.NewInt(0)
+	}
+	return released, total
+}
+
+func bigOrZero(v *big.Int) *big.Int {
+	if v == nil {
+		return big.NewInt(0)
+	}
+	return v
 }
 
 // LoadDeposits lists user deposits on contract via userDeposits + getClaimable.
@@ -98,6 +143,12 @@ func LoadDeposits(ctx context.Context, cli *ethclient.Client, contract, user str
 		return page
 	}
 
+	acc, err := callUint(ctx, cli, contract, selAccReleasedFrac)
+	if err != nil {
+		page.Errors = append(page.Errors, "accReleasedFrac: "+err.Error())
+		acc = big.NewInt(0)
+	}
+
 	out := make([]Deposit, n)
 	errs := make([]string, n)
 	sem := make(chan struct{}, depositWorkers)
@@ -109,7 +160,7 @@ func LoadDeposits(ctx context.Context, cli *ethclient.Client, contract, user str
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			d, e := loadOneDeposit(ctx, cli, contract, user, i)
+			d, e := loadOneDeposit(ctx, cli, contract, user, i, acc)
 			out[i] = d
 			if e != nil {
 				errs[i] = fmt.Sprintf("deposit[%d]: %s", i, e.Error())
@@ -126,12 +177,13 @@ func LoadDeposits(ctx context.Context, cli *ethclient.Client, contract, user str
 	return page
 }
 
-func loadOneDeposit(ctx context.Context, cli *ethclient.Client, contract, user string, index int) (Deposit, error) {
+func loadOneDeposit(ctx context.Context, cli *ethclient.Client, contract, user string, index int, acc *big.Int) (Deposit, error) {
 	d := Deposit{
 		Index:           index,
 		PrincipalDAI:    "—",
 		BurnedLGNS:      "—",
 		ReleasedDAI:     "—",
+		TotalReleaseDAI: "—",
 		ReleasedDisplay: "—",
 		Claimed:         "—",
 		Claimable:       "—",
@@ -148,17 +200,22 @@ func loadOneDeposit(ctx context.Context, cli *ethclient.Client, contract, user s
 	for i := 0; i < 9; i++ {
 		words[i] = new(big.Int).SetBytes(raw[i*32 : (i+1)*32])
 	}
-	principal := words[0]
+	daiValue := words[0]
+	capBps := words[1]
 	burned := words[2]
-	released := words[3]
+	releasedRaw := words[3]
 	claimed := words[4]
+	lastAcc := words[5]
 	ts := words[7]
 	status := words[8]
 
-	d.PrincipalDAI = tokenbal.Format(principal, daiDecimals)
+	released, total := computeReleasedDAI(daiValue, capBps, releasedRaw, lastAcc, acc)
+
+	d.PrincipalDAI = tokenbal.Format(daiValue, daiDecimals)
 	d.BurnedLGNS = tokenbal.Format(burned, lgnsDecimals)
 	d.ReleasedDAI = tokenbal.Format(released, daiDecimals)
-	d.ReleasedDisplay = tokenbal.Format(released, daiDecimals) + "/" + tokenbal.Format(principal, daiDecimals)
+	d.TotalReleaseDAI = tokenbal.Format(total, daiDecimals)
+	d.ReleasedDisplay = d.ReleasedDAI + "/" + d.TotalReleaseDAI
 	d.Claimed = tokenbal.Format(claimed, lgnsDecimals)
 	d.Status = int(status.Int64())
 	if ts.Sign() > 0 && ts.IsInt64() {

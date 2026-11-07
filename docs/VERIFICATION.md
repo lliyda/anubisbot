@@ -18,6 +18,32 @@
 | `getTotalClaimable(address)` | `267e8ab6` |
 | `userDeposits(address,uint256)` | `08f43333` |
 | `getClaimable(address,uint256)` | `6f5244b1` |
+| `accReleasedFrac()` | `e0a12f52` |
+
+`userDeposits` 返回 9 个 word（与 Origin ABI 一致）：
+
+| # | 名称 | 含义 |
+| --- | --- | --- |
+| 0 | `daiValue` | 本金 DAI（1e18） |
+| 1 | `capBps` | 总释放倍数（20000=200%，23000=230%） |
+| 2 | `burnedLgns` | 已销毁 LGNS（1e9） |
+| 3 | `releasedDaiValue` | 已入账释放 DAI（未含当期 acc 增量） |
+| 4 | `claimedLgns` | 已领取 LGNS（1e9） |
+| 5 | `lastAccReleasedFrac` | 上次结算的全局释放分数 |
+| 6 | `lastAccLgnsPerDai` | （列表展示不用） |
+| 7 | `depositTimestamp` | 存入时间 unix |
+| 8 | `mode` | 模式 |
+
+已释放展示（对齐 Origin，**分母是总释放不是本金**）：
+
+```text
+total    = daiValue * capBps / 10000
+delta    = accReleasedFrac > lastAccReleasedFrac
+         ? daiValue * (accReleasedFrac - lastAccReleasedFrac) / 1_000_000
+         : 0
+released = min(releasedDaiValue + delta, total)
+display  = released / total
+```
 
 历史样例（按债券 `claim(1)`）：
 
