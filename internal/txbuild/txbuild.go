@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strconv"
 	"strings"
 
 	"anubisbot/internal/config"
@@ -23,20 +24,39 @@ func BuildCalldata(taskType string, preset config.Preset, params tasks.TaskParam
 		return data, nil
 	}
 	// legacy fallback: method + selector
-	sel, err := hex.DecodeString(strings.TrimPrefix(preset.Selector, "0x"))
+	fn := EffectiveFunctionName(preset, params)
+	selHex := strings.TrimPrefix(preset.Selector, "0x")
+	switch fn {
+	case "claimAll":
+		selHex = "d1058e59"
+	case "claim":
+		selHex = "379607f5"
+	}
+	sel, err := hex.DecodeString(selHex)
 	if err != nil || len(sel) != 4 {
 		return nil, fmt.Errorf("bad selector")
 	}
-	switch strings.TrimSpace(preset.Method) {
+	switch fn {
 	case "claimAll":
 		return append([]byte{}, sel...), nil
 	case "claim":
-		arg := params.ClaimArg
-		if arg == 0 {
-			arg = preset.DefaultParams.ClaimArg
-		}
-		if arg == 0 {
-			arg = 1
+		var arg int64
+		if len(params.Args) > 0 {
+			n, err := strconv.ParseInt(strings.TrimSpace(params.Args[0]), 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("bad claim arg: %w", err)
+			}
+			arg = n
+		} else if params.EffectiveClaimMode() == "index" {
+			arg = params.ClaimArg
+		} else {
+			arg = params.ClaimArg
+			if arg == 0 {
+				arg = preset.DefaultParams.ClaimArg
+			}
+			if arg == 0 {
+				arg = 1
+			}
 		}
 		data := append([]byte{}, sel...)
 		data = append(data, common.LeftPadBytes(big.NewInt(arg).Bytes(), 32)...)
@@ -57,7 +77,7 @@ func BuildCalldata(taskType string, preset config.Preset, params tasks.TaskParam
 		data = append(data, common.LeftPadBytes(n.Bytes(), 32)...)
 		return data, nil
 	default:
-		return nil, fmt.Errorf("unknown method %q for task type %s (provide abi)", preset.Method, taskType)
+		return nil, fmt.Errorf("unknown method %q for task type %s (provide abi)", fn, taskType)
 	}
 }
 

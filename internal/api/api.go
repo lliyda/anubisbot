@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"anubisbot/internal/batch"
+	"anubisbot/internal/burnbond"
 	"anubisbot/internal/config"
 	"anubisbot/internal/logstore"
 	"anubisbot/internal/rpc"
@@ -161,6 +162,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/wallets", s.handleAddWallet)
 		r.Post("/wallets/import", s.handleImportWallet)
 		r.Patch("/wallets/{id}", s.handleRenameWallet)
+		r.Post("/wallets/{id}/refresh-balances", s.handleRefreshWalletBalances)
 		r.Delete("/wallets/{id}", s.handleDeleteWallet)
 		r.Get("/tasks", s.handleListTasks)
 		r.Post("/tasks", s.handleCreateTask)
@@ -175,6 +177,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/simulate", s.handleSimulatePreset)
 		r.Get("/tasks/{id}/lgns-allowance", s.handleTaskLgnsAllowance)
 		r.Post("/tasks/{id}/lgns-approve", s.handleTaskLgnsApprove)
+		r.Get("/tasks/{id}/bonds", s.handleTaskBonds)
 		r.Get("/logs", s.handleLogs)
 		r.Get("/address/{addr}", s.handleAddress)
 		r.Get("/address/{addr}/rpc", s.handleAddressRPC)
@@ -725,6 +728,37 @@ func (s *Server) handleImportWallet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, wal)
 }
 
+func (s *Server) handleRefreshWalletBalances(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	wal, ok := s.Wallets.Get(id)
+	if !ok {
+		writeErr(w, 404, "wallet not found")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	got := s.fetchBalances(ctx, []wallets.Wallet{wal})
+	entry, ok := got[wal.ID]
+	if !ok {
+		entry = map[string]any{"dai": "—", "lgns": "—", "slgns": "—", "ailgns": "—", "ok": false}
+	}
+	mode := s.mode()
+	s.balMu.Lock()
+	if mode == "live" {
+		if s.balCacheLive == nil {
+			s.balCacheLive = map[string]any{}
+		}
+		s.balCacheLive[wal.ID] = entry
+	} else {
+		if s.balCacheSim == nil {
+			s.balCacheSim = map[string]any{}
+		}
+		s.balCacheSim[wal.ID] = entry
+	}
+	s.balMu.Unlock()
+	writeJSON(w, 200, map[string]any{"id": wal.ID, "balances": entry})
+}
+
 func (s *Server) handleRenameWallet(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	var body struct {
@@ -1162,6 +1196,54 @@ func writeAPIErr(w http.ResponseWriter, err error) {
 		return
 	}
 	writeErr(w, 500, err.Error())
+}
+
+func (s *Server) handleTaskBonds(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	t, ok := s.Tasks.Get(id)
+	if !ok {
+		writeErr(w, 404, "task not found")
+		return
+	}
+	contract, ok := burnbond.ContractForTaskType(t.TaskType)
+	if !ok {
+		writeErr(w, 400, "task type has no bond deposits")
+		return
+	}
+	addr := strings.TrimSpace(t.WalletAddress)
+	if !ethAddrRE.MatchString(addr) {
+		writeErr(w, 400, "task has no wallet address")
+		return
+	}
+	cli, err := s.RPC.Client()
+	if err != nil {
+		writeErr(w, 503, "rpc unavailable")
+		return
+	}
+	page := burnbond.LoadDeposits(r.Context(), cli, contract, addr)
+	mode := t.Params.EffectiveClaimMode()
+	var claimIndex any
+	if mode == "index" {
+		claimIndex = t.Params.ClaimArg
+		if len(t.Params.Args) > 0 {
+			claimIndex = t.Params.Args[0]
+		}
+	} else {
+		claimIndex = nil
+	}
+	writeJSON(w, 200, map[string]any{
+		"taskId":            t.ID,
+		"taskType":          t.TaskType,
+		"walletAddress":     addr,
+		"contract":          page.Contract,
+		"claimMode":         mode,
+		"claimIndex":        claimIndex,
+		"claimableTotal":    page.ClaimableTotal,
+		"claimableTotalRaw": page.ClaimableTotalRaw,
+		"depositCount":      page.DepositCount,
+		"deposits":          page.Deposits,
+		"errors":            page.Errors,
+	})
 }
 
 func (s *Server) handleTaskLgnsAllowance(w http.ResponseWriter, r *http.Request) {

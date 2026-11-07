@@ -16,8 +16,34 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// ResolveMethod parses preset ABI and returns the target method.
+// EffectiveFunctionName picks ABI method from claimMode for bond presets.
+func EffectiveFunctionName(preset config.Preset, params tasks.TaskParams) string {
+	name := strings.TrimSpace(preset.Function)
+	if name == "" {
+		name = strings.TrimSpace(preset.Method)
+	}
+	switch name {
+	case "claimAll", "claim":
+		if params.EffectiveClaimMode() == "index" {
+			return "claim"
+		}
+		return "claimAll"
+	default:
+		return name
+	}
+}
+
+// ResolveMethod parses preset ABI and returns the target method (preset.Function/Method).
 func ResolveMethod(preset config.Preset) (abi.ABI, abi.Method, error) {
+	name := strings.TrimSpace(preset.Function)
+	if name == "" {
+		name = strings.TrimSpace(preset.Method)
+	}
+	return ResolveMethodNamed(preset, name)
+}
+
+// ResolveMethodNamed parses preset ABI and returns the named method (empty → sole method).
+func ResolveMethodNamed(preset config.Preset, name string) (abi.ABI, abi.Method, error) {
 	raw := bytes.TrimSpace(preset.ABI)
 	if len(raw) == 0 || string(raw) == "null" {
 		return abi.ABI{}, abi.Method{}, fmt.Errorf("abi required")
@@ -26,10 +52,7 @@ func ResolveMethod(preset config.Preset) (abi.ABI, abi.Method, error) {
 	if err != nil {
 		return abi.ABI{}, abi.Method{}, fmt.Errorf("invalid abi: %w", err)
 	}
-	name := strings.TrimSpace(preset.Function)
-	if name == "" {
-		name = strings.TrimSpace(preset.Method)
-	}
+	name = strings.TrimSpace(name)
 	if name != "" {
 		m, ok := parsed.Methods[name]
 		if !ok {
@@ -54,8 +77,11 @@ func DeriveSelector(m abi.Method) string {
 	return hex.EncodeToString(m.ID)
 }
 
-func resolveArgStrings(preset config.Preset, params tasks.TaskParams) []string {
-	name := strings.TrimSpace(preset.Function)
+func resolveArgStrings(methodName string, preset config.Preset, params tasks.TaskParams) []string {
+	name := strings.TrimSpace(methodName)
+	if name == "" {
+		name = strings.TrimSpace(preset.Function)
+	}
 	if name == "" {
 		name = strings.TrimSpace(preset.Method)
 	}
@@ -66,7 +92,7 @@ func resolveArgStrings(preset config.Preset, params tasks.TaskParams) []string {
 	if len(params.Args) > 0 {
 		return params.Args
 	}
-	if len(preset.DefaultParams.Args) > 0 {
+	if len(preset.DefaultParams.Args) > 0 && name != "claim" {
 		out := make([]string, len(preset.DefaultParams.Args))
 		copy(out, preset.DefaultParams.Args)
 		return out
@@ -83,6 +109,14 @@ func resolveArgStrings(preset config.Preset, params tasks.TaskParams) []string {
 		}
 		return []string{amt}
 	case "claim":
+		// Prefer explicit args (including "0"). Only fall back to ClaimArg;
+		// do not rewrite 0 → 1 when claimMode/index or args were intended.
+		if len(params.Args) > 0 {
+			return params.Args
+		}
+		if params.EffectiveClaimMode() == "index" {
+			return []string{strconv.FormatInt(params.ClaimArg, 10)}
+		}
 		arg := params.ClaimArg
 		if arg == 0 {
 			arg = preset.DefaultParams.ClaimArg
@@ -92,6 +126,11 @@ func resolveArgStrings(preset config.Preset, params tasks.TaskParams) []string {
 		}
 		return []string{strconv.FormatInt(arg, 10)}
 	default:
+		if len(preset.DefaultParams.Args) > 0 {
+			out := make([]string, len(preset.DefaultParams.Args))
+			copy(out, preset.DefaultParams.Args)
+			return out
+		}
 		return []string{}
 	}
 }
@@ -137,14 +176,15 @@ func parseABIArg(t abi.Type, raw string) (any, error) {
 
 // PackCalldata encodes function call from ABI + positional string args.
 func PackCalldata(preset config.Preset, params tasks.TaskParams) ([]byte, error) {
-	parsed, method, err := ResolveMethod(preset)
+	fn := EffectiveFunctionName(preset, params)
+	parsed, method, err := ResolveMethodNamed(preset, fn)
 	if err != nil {
 		return nil, err
 	}
 	if len(method.Inputs) == 0 {
 		return parsed.Pack(method.Name)
 	}
-	rawArgs := resolveArgStrings(preset, params)
+	rawArgs := resolveArgStrings(method.Name, preset, params)
 	if len(rawArgs) != len(method.Inputs) {
 		return nil, fmt.Errorf("args: want %d got %d for %s", len(method.Inputs), len(rawArgs), method.Name)
 	}

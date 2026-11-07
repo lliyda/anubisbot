@@ -651,6 +651,128 @@ dialog {
 dialog::backdrop { background: rgba(18,21,26,0.45); }
 .dialog-box { padding: 20px; display: grid; gap: 12px; }
 .dialog-box.dialog-wide { max-width: none; }
+.claim-index-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.claim-index-field[hidden] {
+  display: none !important;
+}
+.claim-index-field input {
+  width: 88px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: 500 13px/1.2 var(--mono);
+}
+/* Bond dialog must outgrow the default 440px dialog cap. */
+#bondsDialog {
+  max-width: min(980px, calc(100vw - 24px));
+  width: min(980px, calc(100vw - 24px));
+}
+.bonds-dialog {
+  width: 100%;
+  max-height: min(85vh, 760px);
+  overflow: auto;
+  box-sizing: border-box;
+}
+.bonds-summary {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fafb;
+}
+.bonds-summary #bondsClaimMode {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.bonds-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.bonds-summary-row strong {
+  font-size: 16px;
+  font-weight: 700;
+}
+.bonds-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  max-height: min(52vh, 420px);
+}
+.bonds-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: auto;
+}
+.bonds-table th,
+.bonds-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.bonds-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f6f7f9;
+  font-weight: 600;
+  color: var(--muted);
+}
+.bonds-table th:first-child,
+.bonds-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #fff;
+  box-shadow: 1px 0 0 var(--line);
+}
+.bonds-table th:first-child {
+  z-index: 3;
+  background: #f6f7f9;
+}
+.bonds-table th:last-child,
+.bonds-table td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: #fff;
+  box-shadow: -1px 0 0 var(--line);
+}
+.bonds-table th:last-child {
+  z-index: 3;
+  background: #f6f7f9;
+}
+.bonds-table tr.bond-row.selected {
+  background: #eef6ff;
+}
+.bonds-table tr.bond-row.selected td:first-child,
+.bonds-table tr.bond-row.selected td:last-child {
+  background: #eef6ff;
+}
+.bonds-table tr.bond-row.selected td:first-child {
+  box-shadow: inset 3px 0 0 #3b82f6, 1px 0 0 var(--line);
+}
 .dialog-box h3 { margin: 0; }
 .dialog-box p { margin: 0; color: var(--muted); font-size: 14px; }
 .dialog-box .field {

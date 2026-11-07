@@ -141,12 +141,54 @@
         <label class="check"><input type="radio" name="earlyBroadcast" value="on" /> 开启</label>
         <label class="check"><input type="radio" name="earlyBroadcast" value="off" /> 关闭</label>
       </fieldset>
+      <fieldset class="radio-row" id="claimModeFields" hidden>
+        <legend>领取方式</legend>
+        <label class="check"><input type="radio" name="claimMode" value="all" checked /> 领取全部 (claimAll)</label>
+        <label class="check"><input type="radio" name="claimMode" value="index" /> 指定编号</label>
+        <label class="claim-index-field" id="claimIndexField" hidden>编号
+          <input name="claimIndex" type="number" min="0" step="1" value="0" />
+        </label>
+      </fieldset>
       <div id="taskArgsFields"></div>
       <div class="form-actions">
         <button type="button" class="btn secondary" id="btnCancelTask">取消</button>
         <button type="submit" class="btn primary">保存</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="bondsDialog">
+    <div class="dialog-box dialog-wide bonds-dialog">
+      <div class="settings-head">
+        <h3 id="bondsDialogTitle">查看债券</h3>
+        <button type="button" class="btn icon" id="btnCloseBonds">×</button>
+      </div>
+      <div class="bonds-summary">
+        <p class="desc" id="bondsClaimMode">当前：—</p>
+        <div class="bonds-summary-row">
+          <span>可领取总额 <strong id="bondsClaimableTotal" class="mono">—</strong> LGNS</span>
+          <button type="button" class="btn primary sm" id="btnBondsClaimAll">全部领取</button>
+        </div>
+      </div>
+      <p class="desc" id="bondsStatus"></p>
+      <div class="bonds-table-wrap">
+        <table class="bonds-table">
+          <thead>
+            <tr>
+              <th>债券编号</th>
+              <th>存入时间</th>
+              <th>债券本金 DAI</th>
+              <th>已销毁 LGNS</th>
+              <th>已释放 DAI</th>
+              <th>已领取 LGNS</th>
+              <th>可领取 LGNS</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="bondsBody"></tbody>
+        </table>
+      </div>
+    </div>
   </dialog>
 
   <dialog id="walletRenameDialog">

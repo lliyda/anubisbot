@@ -237,6 +237,13 @@ func AmountLabel(t tasks.Task, preset config.Preset) string {
 	if name == "" {
 		name = strings.TrimSpace(preset.Method)
 	}
+	if name == "claimAll" || name == "claim" {
+		if t.Params.EffectiveClaimMode() == "index" {
+			name = "claim"
+		} else {
+			name = "claimAll"
+		}
+	}
 	args := t.Params.Args
 	if len(args) == 0 {
 		args = preset.DefaultParams.Args
@@ -274,14 +281,7 @@ func AmountLabel(t tasks.Task, preset config.Preset) string {
 		if raw != "" {
 			return "claim " + raw
 		}
-		arg := t.Params.ClaimArg
-		if arg == 0 {
-			arg = preset.DefaultParams.ClaimArg
-		}
-		if arg == 0 {
-			arg = 1
-		}
-		return fmt.Sprintf("claim %d", arg)
+		return fmt.Sprintf("claim %d", t.Params.ClaimArg)
 	default:
 		if name == "" {
 			name = "call"

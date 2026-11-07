@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,11 +18,27 @@ import (
 
 type TaskParams struct {
 	Args         []string `json:"args,omitempty"`
-	ClaimArg     int64    `json:"claimArg,omitempty"`     // legacy
+	ClaimMode    string   `json:"claimMode,omitempty"`    // ""|"all"|"index"; empty → all
+	ClaimArg     int64    `json:"claimArg,omitempty"`     // legacy; index mode may be 0
 	BurnAmount   string   `json:"burnAmount,omitempty"`   // legacy
 	GasLimit     uint64   `json:"gasLimit,omitempty"`
 	GasPriceGwei *float64 `json:"gasPriceGwei,omitempty"`
 	FireDelayMs  int      `json:"fireDelayMs,omitempty"`
+}
+
+// NormalizeClaimMode maps raw values to all|index.
+func NormalizeClaimMode(v string) string {
+	switch strings.TrimSpace(strings.ToLower(v)) {
+	case "index":
+		return "index"
+	default:
+		return "all"
+	}
+}
+
+// EffectiveClaimMode returns all or index for bond claim packing.
+func (p TaskParams) EffectiveClaimMode() string {
+	return NormalizeClaimMode(p.ClaimMode)
 }
 
 type Task struct {
@@ -380,13 +398,32 @@ func (s *Store) UpdateEditable(id, name, taskType, earlyBroadcast string, params
 		merged.GasLimit = params.GasLimit
 	}
 	merged.GasPriceGwei = params.GasPriceGwei
-	if params.Args != nil {
-		merged.Args = append([]string(nil), params.Args...)
+	if strings.TrimSpace(params.ClaimMode) != "" || params.Args != nil {
+		mode := NormalizeClaimMode(params.ClaimMode)
+		if strings.TrimSpace(params.ClaimMode) == "" && len(params.Args) > 0 {
+			mode = "index"
+		}
+		merged.ClaimMode = mode
+		if params.Args != nil {
+			merged.Args = append([]string(nil), params.Args...)
+		}
+		if mode == "all" {
+			merged.Args = nil
+			merged.ClaimArg = 0
+		} else if len(merged.Args) > 0 {
+			if n, err := strconv.ParseInt(strings.TrimSpace(merged.Args[0]), 10, 64); err == nil {
+				merged.ClaimArg = n
+			}
+		} else {
+			merged.ClaimArg = params.ClaimArg
+			merged.Args = []string{strconv.FormatInt(merged.ClaimArg, 10)}
+		}
 	}
 	if typeChanged {
-		if merged.ClaimArg == 0 && newPreset.DefaultParams.ClaimArg != 0 {
-			merged.ClaimArg = newPreset.DefaultParams.ClaimArg
-		}
+		// Switching task type resets claim mode to default (all).
+		merged.ClaimMode = "all"
+		merged.Args = nil
+		merged.ClaimArg = 0
 		if merged.BurnAmount == "" && newPreset.DefaultParams.BurnAmount != "" {
 			merged.BurnAmount = newPreset.DefaultParams.BurnAmount
 		}

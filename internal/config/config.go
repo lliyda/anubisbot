@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -132,7 +133,49 @@ func LoadPresets(path string) (map[string]Preset, error) {
 	if err := readJSON(path, &m); err != nil {
 		return nil, err
 	}
+	if EnsureBondClaimABI(m) {
+		_ = SavePresets(path, m)
+	}
 	return m, nil
+}
+
+// bondClaimABIFragment is claim(uint256) for dual-mode bond presets.
+const bondClaimABIFragment = `{"type":"function","name":"claim","stateMutability":"nonpayable","inputs":[{"name":"index","type":"uint256"}],"outputs":[]}`
+
+// EnsureBondClaimABI adds claim(uint256) to fixed_price / lgns_burn ABI when missing.
+// Returns true if any preset was modified.
+func EnsureBondClaimABI(m map[string]Preset) bool {
+	changed := false
+	for _, id := range []string{"fixed_price", "lgns_burn"} {
+		p, ok := m[id]
+		if !ok {
+			continue
+		}
+		raw := bytes.TrimSpace(p.ABI)
+		if len(raw) == 0 || string(raw) == "null" {
+			continue
+		}
+		if bytes.Contains(raw, []byte(`"name":"claim"`)) || bytes.Contains(raw, []byte(`"name": "claim"`)) {
+			continue
+		}
+		var arr []json.RawMessage
+		if err := json.Unmarshal(raw, &arr); err != nil {
+			continue
+		}
+		arr = append(arr, json.RawMessage(bondClaimABIFragment))
+		compact, err := json.Marshal(arr)
+		if err != nil {
+			continue
+		}
+		p.ABI = compact
+		if strings.TrimSpace(p.Function) == "" {
+			p.Function = "claimAll"
+			p.Method = "claimAll"
+		}
+		m[id] = p
+		changed = true
+	}
+	return changed
 }
 
 func SavePresets(path string, m map[string]Preset) error {

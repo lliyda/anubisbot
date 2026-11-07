@@ -549,6 +549,9 @@ function renderTasks(force = false) {
           })()
         }记录</button>
         <button type="button" class="btn secondary sm" data-act="run-once">执行一次</button>
+        ${isBondTaskType(t.taskType)
+          ? `<button type="button" class="btn secondary sm" data-act="view-bonds">查看债券</button>`
+          : ""}
         ${preset.needsLgnsApprove
           ? (() => {
               const as = state.allowByTask[t.id] || "unknown";
@@ -1079,7 +1082,51 @@ function fillTaskSelects(preferId) {
   renderPresetManageList();
 }
 
-function updateTypeDesc() {
+function isBondTaskType(taskType) {
+  return taskType === "fixed_price" || taskType === "lgns_burn";
+}
+
+function setClaimModeRadios(mode, index) {
+  const form = $("#taskForm");
+  if (!form) return;
+  const m = mode === "index" ? "index" : "all";
+  form.querySelectorAll('input[name="claimMode"]').forEach((r) => {
+    r.checked = r.value === m;
+  });
+  const idx = form.querySelector('input[name="claimIndex"]');
+  if (idx && index != null && index !== "") {
+    idx.value = String(index);
+  } else if (idx && (idx.value === "" || idx.value == null)) {
+    idx.value = "0";
+  }
+  updateClaimModeHint();
+}
+
+function updateClaimModeHint() {
+  const form = $("#taskForm");
+  if (!form) return;
+  const mode = form.querySelector('input[name="claimMode"]:checked')?.value || "all";
+  const idxField = $("#claimIndexField");
+  const idxInput = form.querySelector('input[name="claimIndex"]');
+  if (idxField) idxField.hidden = mode !== "index";
+  if (idxInput) idxInput.disabled = mode !== "index";
+}
+
+function syncClaimModeFields(taskType, { resetClaim = true, mode = "all", index = 0 } = {}) {
+  const box = $("#claimModeFields");
+  if (!box) return;
+  const bond = isBondTaskType(taskType);
+  box.hidden = !bond;
+  if (!bond) return;
+  if (resetClaim) {
+    setClaimModeRadios("all", 0);
+  } else {
+    setClaimModeRadios(mode, index);
+  }
+}
+
+function updateTypeDesc(opts = {}) {
+  const resetClaim = opts.resetClaim !== false;
   const form = $("#taskForm");
   const editing = !!(state.editingTaskId || form?.taskId?.value);
   const gweiEl = form?.querySelector('[name="gasPriceGwei"]');
@@ -1096,7 +1143,13 @@ function updateTypeDesc() {
   const gas = document.querySelector('#taskForm [name="gasLimit"]');
   if (p?.defaultParams?.gasLimit) gas.value = p.defaultParams.gasLimit;
   if (keepGwei != null && gweiEl) gweiEl.value = keepGwei;
+  syncClaimModeFields(t, { resetClaim });
   const box = $("#taskArgsFields");
+  if (isBondTaskType(t)) {
+    // Bond claim args come from claimModeFields, not generic ABI args.
+    if (box) box.innerHTML = "";
+    return;
+  }
   const resolved = resolveAbiFn(JSON.stringify(p?.abi || []), presetFnName(p));
   if (!resolved.fn) {
     if (box) box.innerHTML = `<p class="desc">${escapeHtml(resolved.error || "无法解析 ABI")}</p>`;
@@ -1145,6 +1198,7 @@ function openNewTaskDialog() {
   fillWalletSelect();
   form.name.value = "";
   setEarlyBroadcastRadios(form, "follow");
+  updateTypeDesc({ resetClaim: true });
   $("#taskDialog").showModal();
 }
 
@@ -1165,26 +1219,156 @@ function openEditTaskDialog(task) {
     sel.required = false;
   }
   form.taskType.value = task.taskType || "";
-  updateTypeDesc();
   const p = task.params || {};
+  updateTypeDesc({ resetClaim: false });
   if (p.gasLimit) form.gasLimit.value = p.gasLimit;
   form.gasPriceGwei.value = p.gasPriceGwei != null && p.gasPriceGwei !== "" ? p.gasPriceGwei : "";
   setEarlyBroadcastRadios(form, task.earlyBroadcast || "follow");
-  const preset = state.presets[task.taskType];
-  const box = $("#taskArgsFields");
-  const resolved = resolveAbiFn(JSON.stringify(preset?.abi || []), presetFnName(preset));
-  if (resolved.fn && box) {
-    let vals = abiArgDefaults(resolved.fn, preset);
-    if (Array.isArray(p.args) && p.args.length) {
-      vals = p.args.map(String);
-    } else if (p.burnAmount && resolved.fn.inputs?.length) {
-      vals = resolved.fn.inputs.map((_, i) => (i === 0 ? String(p.burnAmount) : ""));
+  if (isBondTaskType(task.taskType)) {
+    const mode = p.claimMode === "index" ? "index" : "all";
+    let idx = p.claimArg != null ? p.claimArg : 0;
+    if (Array.isArray(p.args) && p.args.length) idx = p.args[0];
+    setClaimModeRadios(mode, idx);
+  } else {
+    const preset = state.presets[task.taskType];
+    const box = $("#taskArgsFields");
+    const resolved = resolveAbiFn(JSON.stringify(preset?.abi || []), presetFnName(preset));
+    if (resolved.fn && box) {
+      let vals = abiArgDefaults(resolved.fn, preset);
+      if (Array.isArray(p.args) && p.args.length) {
+        vals = p.args.map(String);
+      } else if (p.burnAmount && resolved.fn.inputs?.length) {
+        vals = resolved.fn.inputs.map((_, i) => (i === 0 ? String(p.burnAmount) : ""));
+      }
+      renderArgFields(box, resolved.fn, vals, "taskArg");
     }
-    renderArgFields(box, resolved.fn, vals, "taskArg");
   }
   const title = $("#taskFormTitle");
   if (title) title.textContent = "编辑任务";
   $("#taskDialog").showModal();
+}
+
+function fmtBondTime(iso) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return escapeHtml(String(iso));
+    const pad = (n) => String(n).padStart(2, "0");
+    // Display CST (UTC+8)
+    const cst = new Date(d.getTime() + 8 * 3600 * 1000);
+    return `${cst.getUTCFullYear()}-${pad(cst.getUTCMonth() + 1)}-${pad(cst.getUTCDate())} ${pad(cst.getUTCHours())}:${pad(cst.getUTCMinutes())}:${pad(cst.getUTCSeconds())}`;
+  } catch {
+    return escapeHtml(String(iso));
+  }
+}
+
+function bondsModeLabel(mode, claimIndex) {
+  if (mode === "index") {
+    const n = claimIndex != null && claimIndex !== "" ? claimIndex : "?";
+    return `当前：领取编号 ${n}（claim(${n})）`;
+  }
+  return "当前：领取全部 (claimAll)";
+}
+
+/** Shorten long token amounts for the bonds table. */
+function fmtBondAmt(v, maxFrac = 4) {
+  if (v == null || v === "" || v === "—") return "—";
+  const s = String(v).trim();
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return s;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return s;
+  if (Math.abs(n) >= 1e6) return n.toExponential(2);
+  const fixed = n.toFixed(maxFrac);
+  return fixed.replace(/\.?0+$/, "") || "0";
+}
+
+function fmtReleasedDisplay(v) {
+  if (v == null || v === "" || v === "—") return "—";
+  const s = String(v);
+  const i = s.indexOf("/");
+  if (i < 0) return fmtBondAmt(s);
+  return `${fmtBondAmt(s.slice(0, i))}/${fmtBondAmt(s.slice(i + 1))}`;
+}
+
+async function openBondsDialog(taskId) {
+  const task = state.tasks.find((t) => t.id === taskId);
+  if (!task || !isBondTaskType(task.taskType)) {
+    toast("该任务类型无债券", true);
+    return;
+  }
+  state.bondsTaskId = taskId;
+  const dlg = $("#bondsDialog");
+  const title = $("#bondsDialogTitle");
+  const typeLabel = state.presets[task.taskType]?.label || task.taskType;
+  if (title) title.textContent = `查看债券 · ${task.walletName || shortAddr(task.walletAddress)} · ${typeLabel}`;
+  $("#bondsClaimMode").textContent = "当前：加载中…";
+  $("#bondsClaimableTotal").textContent = "—";
+  $("#bondsStatus").textContent = "加载中…";
+  $("#bondsBody").innerHTML = "";
+  dlg.showModal();
+  try {
+    const data = await api(`/tasks/${taskId}/bonds`);
+    state.bondsData = data;
+    $("#bondsClaimMode").textContent = bondsModeLabel(data.claimMode, data.claimIndex);
+    $("#bondsClaimableTotal").textContent =
+      data.claimableTotal != null && data.claimableTotal !== ""
+        ? fmtBondAmt(data.claimableTotal, 6)
+        : "—";
+    const errs = Array.isArray(data.errors) ? data.errors.filter(Boolean) : [];
+    const rows = Array.isArray(data.deposits) ? data.deposits : [];
+    if (!rows.length) {
+      $("#bondsStatus").textContent = errs.length ? errs.join("；") : "暂无债券";
+    } else {
+      $("#bondsStatus").textContent = errs.length ? `已加载 ${rows.length} 笔；${errs.join("；")}` : `共 ${rows.length} 笔债券`;
+    }
+    const curIdx = data.claimMode === "index" ? String(data.claimIndex) : null;
+    $("#bondsBody").innerHTML = rows.map((d) => {
+      const idx = d.index;
+      const selected = curIdx != null && String(idx) === curIdx ? " selected" : "";
+      return `<tr class="bond-row${selected}" data-index="${idx}">
+        <td class="mono">${idx}</td>
+        <td class="mono">${fmtBondTime(d.burnedAt)}</td>
+        <td class="mono">${escapeHtml(fmtBondAmt(d.principalDAI))}</td>
+        <td class="mono">${escapeHtml(fmtBondAmt(d.burnedLGNS))}</td>
+        <td class="mono">${escapeHtml(fmtReleasedDisplay(d.releasedDisplay))}</td>
+        <td class="mono">${escapeHtml(fmtBondAmt(d.claimed))}</td>
+        <td class="mono">${escapeHtml(fmtBondAmt(d.claimable))}</td>
+        <td><button type="button" class="btn secondary sm" data-act="bond-claim" data-index="${idx}">领取</button></td>
+      </tr>`;
+    }).join("");
+  } catch (err) {
+    $("#bondsStatus").textContent = err.message || String(err);
+    toast(err.message, true);
+  }
+}
+
+async function setTaskClaimMode(taskId, mode, index) {
+  const task = state.tasks.find((t) => t.id === taskId);
+  if (!task) throw new Error("task not found");
+  const prev = task.params || {};
+  const params = {
+    gasLimit: prev.gasLimit,
+    gasPriceGwei: prev.gasPriceGwei,
+    claimMode: mode === "index" ? "index" : "all",
+  };
+  if (mode === "index") {
+    const n = Number(index);
+    if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+      throw new Error("无效债券编号");
+    }
+    params.args = [String(n)];
+    params.claimArg = n;
+  } else {
+    params.args = [];
+    params.claimArg = 0;
+  }
+  const updated = await api(`/tasks/${taskId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ params }),
+  });
+  const i = state.tasks.findIndex((x) => x.id === taskId);
+  if (i >= 0) state.tasks[i] = { ...state.tasks[i], ...updated };
+  return updated;
 }
 
 function buildTaskParamsFromForm(fd, taskType) {
@@ -1193,6 +1377,23 @@ function buildTaskParamsFromForm(fd, taskType) {
   };
   const gwei = fd.get("gasPriceGwei");
   if (gwei !== "" && gwei != null) params.gasPriceGwei = Number(gwei);
+  if (isBondTaskType(taskType)) {
+    const mode = (fd.get("claimMode") || "all").toString() === "index" ? "index" : "all";
+    params.claimMode = mode;
+    if (mode === "index") {
+      const raw = String(fd.get("claimIndex") ?? "0").trim();
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) {
+        throw new Error("债券编号须为 ≥0 的整数");
+      }
+      params.args = [String(n)];
+      params.claimArg = n;
+    } else {
+      params.args = [];
+      params.claimArg = 0;
+    }
+    return params;
+  }
   const p = state.presets[taskType];
   const resolved = resolveAbiFn(JSON.stringify(p?.abi || []), presetFnName(p));
   const n = resolved.fn?.inputs?.length || 0;
@@ -1686,6 +1887,38 @@ function bind() {
   const taskDlg = $("#taskDialog");
   bindDialogBackdrop(taskDlg);
   taskDlg.addEventListener("close", () => resetTaskDialogMode());
+  const bondsDlg = $("#bondsDialog");
+  if (bondsDlg) {
+    bindDialogBackdrop(bondsDlg);
+    $("#btnCloseBonds")?.addEventListener("click", () => bondsDlg.close());
+    $("#btnBondsClaimAll")?.addEventListener("click", async () => {
+      const id = state.bondsTaskId;
+      if (!id) return;
+      try {
+        await setTaskClaimMode(id, "all");
+        toast("已设为领取全部 (claimAll)");
+        bondsDlg.close();
+        await refreshLists();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+    $("#bondsBody")?.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-act=bond-claim]");
+      if (!btn) return;
+      const id = state.bondsTaskId;
+      const idx = btn.dataset.index;
+      if (!id) return;
+      try {
+        await setTaskClaimMode(id, "index", idx);
+        toast(`已设为领取编号 ${idx}`);
+        bondsDlg.close();
+        await refreshLists();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    });
+  }
   $("#taskFilter").addEventListener("input", (e) => {
     state.taskFilter = e.target.value || "";
     renderTasks(true);
@@ -1695,14 +1928,26 @@ function bind() {
   $("#btnCancelTask").addEventListener("click", () => {
     taskDlg.close();
   });
-  $("#typeSelect").addEventListener("change", updateTypeDesc);
+  $("#typeSelect").addEventListener("change", () => updateTypeDesc({ resetClaim: true }));
+
+  $("#taskForm").addEventListener("change", (e) => {
+    if (e.target.name === "claimMode" || e.target.name === "claimIndex") {
+      updateClaimModeHint();
+    }
+  });
 
   $("#taskForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const taskId = (state.editingTaskId || fd.get("taskId") || "").toString().trim();
     const taskType = fd.get("taskType");
-    const params = buildTaskParamsFromForm(fd, taskType);
+    let params;
+    try {
+      params = buildTaskParamsFromForm(fd, taskType);
+    } catch (err) {
+      toast(err.message || String(err), true);
+      return;
+    }
     const walletId = taskId
       ? (fd.get("walletIdMirror") || state.tasks.find((t) => t.id === taskId)?.walletId || "").toString()
       : (fd.get("walletId") || "").toString();
@@ -1832,6 +2077,9 @@ function bind() {
         await api(`/tasks/${id}/run-once`, { method: "POST", body: "{}" });
         toast("已立即执行");
         await refreshLists();
+        return;
+      } else if (btn.dataset.act === "view-bonds") {
+        await openBondsDialog(id);
         return;
       } else if (btn.dataset.act === "del-task") {
         const t = state.tasks.find((x) => x.id === id);
@@ -1972,6 +2220,28 @@ function bind() {
       }
     });
   }
+
+  $("#walletBody").addEventListener("dblclick", async (e) => {
+    if (e.target.closest(".toggle, [data-act], .addr-link-btn, .addr-copy-btn, input, button, a")) {
+      return;
+    }
+    const tr = e.target.closest("tr[data-id]");
+    const id = tr?.dataset.id;
+    if (!id) return;
+    const wal = state.wallets.find((w) => w.id === id);
+    toast(`刷新资产${wal?.name ? " · " + wal.name : ""}…`);
+    try {
+      const res = await api(`/wallets/${id}/refresh-balances`, { method: "POST", body: "{}" });
+      if (res?.balances) {
+        state.balances = { ...state.balances, [id]: res.balances };
+        state.sig.wallets = "";
+        renderWallets(true);
+      }
+      toast("资产已更新");
+    } catch (err) {
+      toast(err.message, true);
+    }
+  });
 
   $("#walletBody").addEventListener("click", async (e) => {
     const copyAddr = e.target.closest("[data-act=copy-addr]");
