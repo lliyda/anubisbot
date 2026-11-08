@@ -5,7 +5,10 @@ config/chain.local.json
 data/tasks.json
 data/panel.json
 data/secrets.local.json
+data/secrets.live.json
 data/master.key
+ota-dl-*.zip
+tmp_quota.go
 data/logs.jsonl
 data/bot.stdout.log
 /anubisbot.exe
