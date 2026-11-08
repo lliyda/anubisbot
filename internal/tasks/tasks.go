@@ -304,8 +304,7 @@ func normalizeFireAtLocked(t *Task, now time.Time) {
 		if t.Schedule == "hourly" && t.FireAt != nil && !hourlyAlignedCST(*t.FireAt) {
 			need = true
 		}
-		if t.Schedule == "hourly" && t.FireAt != nil && !t.FireAt.Equal(want) {
-			// snap to the single canonical next hour
+		if t.FireAt != nil && !t.FireAt.Equal(want) {
 			need = true
 		}
 		if need {
@@ -437,6 +436,10 @@ func (s *Store) UpdateEditable(id, name, taskType, earlyBroadcast string, stopAf
 	t.EarlyBroadcast = NormalizeEarlyBroadcast(earlyBroadcast)
 	t.StopAfterSuccess = stopAfterSuccess
 	t.Params = merged
+	if typeChanged {
+		// Force next-run recompute from new schedule + now.
+		t.FireAt = nil
+	}
 	normalizeFireAtLocked(&t, now)
 	s.list[idx] = t
 	if err := s.saveLocked(); err != nil {

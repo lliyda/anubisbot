@@ -119,4 +119,8 @@ func TestSyncWalletNameAndUpdateEditable(t *testing.T) {
 	if switched.TaskType != "helix" || switched.Schedule != "daily_1159_cst" {
 		t.Fatalf("type switch failed: %+v", switched)
 	}
+	wantFire := ComputeFireAt("daily_1159_cst", now, switched.Params.FireDelayMs, nil)
+	if switched.FireAt == nil || !switched.FireAt.Equal(wantFire) {
+		t.Fatalf("type switch fireAt=%v want %v", switched.FireAt, wantFire)
+	}
 }
