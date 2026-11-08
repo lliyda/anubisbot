@@ -44,6 +44,26 @@
     burn: "销毁",
   };
 
+  function toast(msg, bad = false) {
+    const box = $("#toasts");
+    if (!box) return;
+    const el = document.createElement("div");
+    el.className = "toast" + (bad ? " bad" : "");
+    el.textContent = String(msg ?? "");
+    box.appendChild(el);
+    if (typeof box.showPopover === "function") {
+      try {
+        if (!box.matches(":popover-open")) box.showPopover();
+      } catch { /* ignore */ }
+    }
+    setTimeout(() => {
+      el.remove();
+      if (typeof box.hidePopover === "function" && !box.childElementCount) {
+        try { box.hidePopover(); } catch { /* ignore */ }
+      }
+    }, 4000);
+  }
+
   function shortAddr(a) {
     if (!a) return "—";
     return a.slice(0, 6) + "…" + a.slice(-4);
@@ -174,7 +194,7 @@
     const input = $("#addrQueryInput");
     const v = (input?.value || "").trim();
     if (!/^0x[0-9a-fA-F]{40}$/.test(v)) {
-      alert("请先输入有效地址");
+      toast("请先输入有效地址", true);
       return;
     }
     let ok = false;
@@ -193,7 +213,7 @@
       } catch (_) { ok = false; }
     }
     if (!ok) {
-      alert("复制失败");
+      toast("复制失败", true);
       return;
     }
     if (btn) {
@@ -764,7 +784,7 @@
         try {
           await loadMoreActivity();
         } catch (err) {
-          alert(err.message || err);
+          toast(err.message || err, true);
         }
         return;
       }
@@ -773,7 +793,7 @@
         try {
           await loadMoreBurnClaims();
         } catch (err) {
-          alert(err.message || err);
+          toast(err.message || err, true);
         }
       }
     });

@@ -1047,6 +1047,25 @@ function askDeleteTaskConfirm(name) {
   });
 }
 
+function askConfirm(message, { title = "请确认", okText = "确定", danger = true } = {}) {
+  const dlg = $("#confirmDialog");
+  if (!dlg) return Promise.resolve(false);
+  const titleEl = $("#confirmDialogTitle");
+  const msgEl = $("#confirmDialogMsg");
+  const okBtn = $("#confirmDialogOk");
+  if (titleEl) titleEl.textContent = title;
+  if (msgEl) msgEl.textContent = message;
+  if (okBtn) {
+    okBtn.textContent = okText;
+    okBtn.className = "btn " + (danger ? "danger" : "primary");
+  }
+  dlg.returnValue = "";
+  dlg.showModal();
+  return new Promise((resolve) => {
+    dlg.addEventListener("close", () => resolve(dlg.returnValue === "ok"), { once: true });
+  });
+}
+
 function sourceLabel(s) {
   return ({ privateKey: "私钥", mnemonic: "助记词", privateKeyEnv: "环境变量", watch: "只读" })[s] || s || "—";
 }
@@ -1888,8 +1907,10 @@ function bind() {
     rpcDlg.showModal();
   }
 
-  function tryCloseRpcManage() {
-    if (isRpcDraftDirty() && !confirm("有未保存的修改，确定关闭？")) return;
+  async function tryCloseRpcManage() {
+    if (isRpcDraftDirty() && !(await askConfirm("有未保存的修改，确定关闭？", { title: "关闭 RPC 管理", okText: "确定关闭", danger: false }))) {
+      return;
+    }
     rpcDraft = null;
     rpcDraftBase = null;
     rpcDlg.close();
@@ -2044,7 +2065,7 @@ function bind() {
       return;
     }
     if (btn.dataset.act === "del-rpc") {
-      if (!confirm(`确定删除 RPC「${rpc.name || id}」？`)) return;
+      if (!(await askConfirm(`确定删除 RPC「${rpc.name || id}」？`, { title: "删除 RPC", okText: "删除" }))) return;
       rpcDraft = rpcDraft.filter((x) => x.id !== id);
       if (rpcEditId === id) closeRpcEditDialog();
       renderRpcManageList();
@@ -2553,7 +2574,8 @@ function bind() {
     const btn = e.target.closest("[data-act=del-wallet]");
     if (!btn) return;
     const id = btn.closest("tr")?.dataset.id;
-    if (!id || !confirm("确定删除该钱包？")) return;
+    if (!id) return;
+    if (!(await askConfirm("确定删除该钱包？", { title: "删除钱包", okText: "删除" }))) return;
     try {
       await api(`/wallets/${id}`, { method: "DELETE" });
       toast("钱包已删除");
@@ -2624,7 +2646,7 @@ function bind() {
       return;
     }
     if (btn.dataset.act === "del-schedule") {
-      if (!confirm(`确定删除定时「${id}」？`)) return;
+      if (!(await askConfirm(`确定删除定时「${id}」？`, { title: "删除定时", okText: "删除" }))) return;
       try {
         await api(`/schedules/${id}`, { method: "DELETE" });
         toast("定时已删除");
@@ -2711,7 +2733,7 @@ function bind() {
       return;
     }
     if (btn.dataset.act === "del-preset") {
-      if (!confirm(`确定删除任务类型「${id}」？`)) return;
+      if (!(await askConfirm(`确定删除任务类型「${id}」？`, { title: "删除任务类型", okText: "删除" }))) return;
       try {
         await api(`/presets/${id}`, { method: "DELETE" });
         toast("类型已删除");
