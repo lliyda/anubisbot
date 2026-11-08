@@ -68,7 +68,7 @@ func TestSyncWalletNameAndUpdateEditable(t *testing.T) {
 	}
 
 	gwei := 5000.0
-	updated, err := st.UpdateEditable(a.ID, "备注", "lgns_burn", "on", TaskParams{
+	updated, err := st.UpdateEditable(a.ID, "备注", "lgns_burn", "on", true, TaskParams{
 		GasLimit: 500000, GasPriceGwei: &gwei,
 	}, presets, now)
 	if err != nil {
@@ -80,14 +80,17 @@ func TestSyncWalletNameAndUpdateEditable(t *testing.T) {
 	if updated.EarlyBroadcast != "on" {
 		t.Fatalf("earlyBroadcast want on, got %q", updated.EarlyBroadcast)
 	}
+	if !updated.StopAfterSuccess {
+		t.Fatalf("stopAfterSuccess want true")
+	}
 
-	_, err = st.UpdateEditable(a.ID, "x", "fixed_price", "follow", TaskParams{}, presets, now)
+	_, err = st.UpdateEditable(a.ID, "x", "fixed_price", "follow", true, TaskParams{}, presets, now)
 	if err == nil || err.Error() != "wallet already has this task type" {
 		t.Fatalf("want dup type error, got %v", err)
 	}
 
 	gwei2 := 1000.0
-	kept, err := st.UpdateEditable(helix.ID, "", "helix", "off", TaskParams{
+	kept, err := st.UpdateEditable(helix.ID, "", "helix", "off", false, TaskParams{
 		GasLimit: 675000, GasPriceGwei: &gwei2,
 	}, presets, now)
 	if err != nil {
@@ -105,8 +108,11 @@ func TestSyncWalletNameAndUpdateEditable(t *testing.T) {
 	if kept.EarlyBroadcast != "off" {
 		t.Fatalf("earlyBroadcast want off, got %q", kept.EarlyBroadcast)
 	}
+	if kept.StopAfterSuccess {
+		t.Fatalf("stopAfterSuccess want false")
+	}
 
-	switched, err := st.UpdateEditable(a.ID, "helix任务", "helix", "follow", TaskParams{GasLimit: 675000}, presets, now)
+	switched, err := st.UpdateEditable(a.ID, "helix任务", "helix", "follow", false, TaskParams{GasLimit: 675000}, presets, now)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -912,7 +912,8 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 	_, hasType := patch["taskType"]
 	_, hasParams := patch["params"]
 	_, hasEarly := patch["earlyBroadcast"]
-	if hasName || hasType || hasParams || hasEarly {
+	_, hasStopAfter := patch["stopAfterSuccess"]
+	if hasName || hasType || hasParams || hasEarly || hasStopAfter {
 		var name string
 		if hasName {
 			switch v := patch["name"].(type) {
@@ -955,6 +956,20 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		} else if cur, ok := s.Tasks.Get(id); ok {
 			earlyBroadcast = cur.EarlyBroadcast
 		}
+		stopAfterSuccess := false
+		if hasStopAfter {
+			switch v := patch["stopAfterSuccess"].(type) {
+			case bool:
+				stopAfterSuccess = v
+			case nil:
+				stopAfterSuccess = false
+			default:
+				writeErr(w, 400, "invalid stopAfterSuccess")
+				return
+			}
+		} else if cur, ok := s.Tasks.Get(id); ok {
+			stopAfterSuccess = cur.StopAfterSuccess
+		}
 		var params tasks.TaskParams
 		if hasParams {
 			b, err := json.Marshal(patch["params"])
@@ -976,7 +991,7 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		if s.Syncer != nil {
 			now = s.Syncer.NowChain()
 		}
-		t, err := s.Tasks.UpdateEditable(id, name, taskType, earlyBroadcast, params, presets, now)
+		t, err := s.Tasks.UpdateEditable(id, name, taskType, earlyBroadcast, stopAfterSuccess, params, presets, now)
 		if err != nil {
 			msg := err.Error()
 			if msg == "task not found" {

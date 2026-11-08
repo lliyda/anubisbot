@@ -15,6 +15,7 @@ import (
 	"anubisbot/internal/settings"
 	"anubisbot/internal/tasks"
 	"anubisbot/internal/timesync"
+	"anubisbot/internal/tokenbal"
 
 	"github.com/ethereum/go-ethereum/core/types"
 )
@@ -402,6 +403,10 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 					if hb := hourBlockOf(ctx, s.RPC, lastRPC, bn, fireAt); hb > 0 {
 						extra["hourBlock"] = hb
 					}
+					if rec.EffectiveGasPrice != nil {
+						fee := new(big.Int).Mul(new(big.Int).SetUint64(rec.GasUsed), rec.EffectiveGasPrice)
+						extra["gasFeeDAI"] = tokenbal.Format(fee, 18)
+					}
 					if rec.Status == 0 {
 						anyOK = false
 						extra["ok"] = false
@@ -436,7 +441,7 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 		}
 	}
 	extra["ok"] = anyOK
-	if tt.Schedule == "once" {
+	if tt.Schedule == "once" || (anyOK && tt.StopAfterSuccess) {
 		tt.Enabled = false
 		tt.FireAt = nil
 		if tt.Status == "armed" {
@@ -551,7 +556,7 @@ func formatSuccessMessage(extra map[string]any, amt string, elapsedMs int64) str
 				parts = append(parts, fmt.Sprintf("整点第 %d 块", hb))
 			}
 		}
-		parts = append(parts, fmt.Sprintf("块内第 %d 笔", idx+1), fmt.Sprintf("高度 %d", bn))
+		parts = append(parts, fmt.Sprintf("第 %d 笔", idx+1), fmt.Sprintf("高度 %d", bn))
 		return strings.Join(parts, " · ")
 	}
 	return fmt.Sprintf("%s · %s · %dms", title, amt, elapsedMs)

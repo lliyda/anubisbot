@@ -677,7 +677,7 @@ function formatTaskRecord(l) {
       } else if (ex.hourBlock != null && ex.hourBlock !== "") {
         parts.push(`整点第 ${ex.hourBlock} 块`);
       }
-      parts.push(`块内第 ${idx} 笔`, `高度 ${ex.blockNumber}`);
+      parts.push(`第 ${idx} 笔`, `高度 ${ex.blockNumber}`);
       detail = parts.filter(Boolean).join(" · ");
     } else if (!ok) {
       const err = l.error || "";
@@ -693,11 +693,12 @@ function formatTaskRecord(l) {
     }
     const includeMs = ex.includeMs != null && ex.includeMs !== "" ? ex.includeMs : null;
     const openMs = ex.openMs != null && ex.openMs !== "" ? ex.openMs : null;
+    const gasFeeDAI = ex.gasFeeDAI != null && ex.gasFeeDAI !== "" ? ex.gasFeeDAI : null;
     // includeMs is rendered after the tx link; only fall back to elapsedMs in detail when no tx.
     if (includeMs == null && !l.txHash && ex.elapsedMs != null && ex.elapsedMs !== "") {
       detail = [detail, `${ex.elapsedMs}ms`].filter(Boolean).join(" · ");
     }
-    return { bad: !ok, ok, title, detail, includeMs, openMs };
+    return { bad: !ok, ok, title, detail, includeMs, openMs, gasFeeDAI };
   }
   return { bad: !!l.error, ok: false, title: l.event, detail: l.message || "" };
 }
@@ -721,6 +722,10 @@ function renderTaskLogRows(box, logs) {
       chainMs = `上链 ${escapeHtml(String(includeMs))}ms (${escapeHtml(String(openMs))}ms)`;
     } else if (includeMs != null) {
       chainMs = `上链 ${escapeHtml(String(includeMs))}ms`;
+    }
+    if (row.gasFeeDAI != null && row.gasFeeDAI !== "") {
+      const gasPart = `gas: ${escapeHtml(String(row.gasFeeDAI))} DAI`;
+      chainMs = chainMs ? `${chainMs} · ${gasPart}` : gasPart;
     }
     let txLine = tx;
     if (tx && chainMs) {
@@ -1198,6 +1203,7 @@ function openNewTaskDialog() {
   fillWalletSelect();
   form.name.value = "";
   setEarlyBroadcastRadios(form, "follow");
+  if (form.stopAfterSuccess) form.stopAfterSuccess.checked = true;
   updateTypeDesc({ resetClaim: true });
   $("#taskDialog").showModal();
 }
@@ -1224,6 +1230,7 @@ function openEditTaskDialog(task) {
   if (p.gasLimit) form.gasLimit.value = p.gasLimit;
   form.gasPriceGwei.value = p.gasPriceGwei != null && p.gasPriceGwei !== "" ? p.gasPriceGwei : "";
   setEarlyBroadcastRadios(form, task.earlyBroadcast || "follow");
+  if (form.stopAfterSuccess) form.stopAfterSuccess.checked = !!task.stopAfterSuccess;
   if (isBondTaskType(task.taskType)) {
     const mode = p.claimMode === "index" ? "index" : "all";
     let idx = p.claimArg != null ? p.claimArg : 0;
@@ -1967,6 +1974,7 @@ function bind() {
     const name = (fd.get("name") || "").toString().trim();
     const earlyRaw = (fd.get("earlyBroadcast") || "follow").toString();
     const earlyBroadcast = earlyRaw === "on" || earlyRaw === "off" ? earlyRaw : "follow";
+    const stopAfterSuccess = fd.get("stopAfterSuccess") === "on";
     try {
       if (taskId) {
         await api(`/tasks/${taskId}`, {
@@ -1975,6 +1983,7 @@ function bind() {
             name,
             taskType,
             earlyBroadcast,
+            stopAfterSuccess,
             params,
           }),
         });
@@ -1988,6 +1997,7 @@ function bind() {
             taskType,
             enabled: true,
             earlyBroadcast,
+            stopAfterSuccess,
             params,
           }),
         });

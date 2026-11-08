@@ -53,8 +53,10 @@ type Task struct {
 	Enabled       bool       `json:"enabled"`
 	Params        TaskParams `json:"params"`
 	// EarlyBroadcast: "on" | "off" | "follow" (empty → follow global settings).
-	EarlyBroadcast string     `json:"earlyBroadcast,omitempty"`
-	Status         string     `json:"status"`
+	EarlyBroadcast string `json:"earlyBroadcast,omitempty"`
+	// StopAfterSuccess: when true, disable the task after one successful run.
+	StopAfterSuccess bool       `json:"stopAfterSuccess"`
+	Status           string     `json:"status"`
 	LastRunAt      *time.Time `json:"lastRunAt"`
 	LastTxHash     string     `json:"lastTxHash,omitempty"`
 	LastError      string     `json:"lastError,omitempty"`
@@ -352,10 +354,10 @@ func (s *Store) Patch(id string, patch map[string]any) (Task, error) {
 	return Task{}, fmt.Errorf("task not found")
 }
 
-// UpdateEditable updates name, taskType, earlyBroadcast, and editable gas/args from the edit dialog.
+// UpdateEditable updates name, taskType, earlyBroadcast, stopAfterSuccess, and editable gas/args from the edit dialog.
 // Other params fields (claimArg, burnAmount, fireDelayMs) are preserved.
 // taskType changes update schedule from presets and realign fireAt.
-func (s *Store) UpdateEditable(id, name, taskType, earlyBroadcast string, params TaskParams, presets map[string]config.Preset, now time.Time) (Task, error) {
+func (s *Store) UpdateEditable(id, name, taskType, earlyBroadcast string, stopAfterSuccess bool, params TaskParams, presets map[string]config.Preset, now time.Time) (Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idx := -1
@@ -433,6 +435,7 @@ func (s *Store) UpdateEditable(id, name, taskType, earlyBroadcast string, params
 	}
 	t.Name = name
 	t.EarlyBroadcast = NormalizeEarlyBroadcast(earlyBroadcast)
+	t.StopAfterSuccess = stopAfterSuccess
 	t.Params = merged
 	normalizeFireAtLocked(&t, now)
 	s.list[idx] = t
