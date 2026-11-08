@@ -1,8 +1,10 @@
 .env
 *.local.json
 config/wallets.local.json
+config/wallets.live.json
 config/chain.local.json
 data/tasks.json
+data/tasks.live.json
 data/panel.json
 data/secrets.local.json
 data/secrets.live.json
