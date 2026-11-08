@@ -1072,16 +1072,12 @@ func (s *Server) handleArmTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, t)
 }
 
-// queueOnceArms arms a fire at now+delay without changing schedule.
+// queueOnceArms arms a fire at now+delay without changing schedule or enabled.
 func (s *Server) queueOnceArms(id, logEvent, logMsg string, delay time.Duration) (tasks.Task, error) {
 	now := s.Syncer.NowChain()
 	fa := now.Add(delay)
 	t, err := s.Tasks.Arm(id, now, &fa)
 	if err != nil {
-		return tasks.Task{}, err
-	}
-	t.Enabled = true
-	if err := s.Tasks.Update(t); err != nil {
 		return tasks.Task{}, err
 	}
 	s.Logs.Add(logstore.Entry{

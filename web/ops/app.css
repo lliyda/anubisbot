@@ -970,9 +970,20 @@ dialog::backdrop { background: rgba(18,21,26,0.45); }
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   padding: 16px 20px;
+}
+#taskForm .task-body > * {
+  flex-shrink: 0;
+}
+#taskForm .task-body > label:not(.check),
+#taskForm .task-body .form-row > label {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
 }
 #taskForm .task-foot {
   flex: 0 0 auto;

@@ -158,7 +158,8 @@ func (s *Scheduler) tick(ctx context.Context) {
 
 	var toSign []tasks.Task
 	for _, t := range s.Tasks.List() {
-		if t.Status != "armed" || !t.Enabled || t.FireAt == nil {
+		// Enabled not required: run-once/dry-run may arm a disabled task.
+		if t.Status != "armed" || t.FireAt == nil {
 			continue
 		}
 		fireAt := t.FireAt.UTC()
@@ -213,7 +214,8 @@ func (s *Scheduler) tick(ctx context.Context) {
 	for _, t := range s.Tasks.List() {
 		// armed: not yet started; fired: first RPC(s) already sent — must keep
 		// scheduling later-lead RPCs until this fireKey finishes.
-		if !t.Enabled || t.FireAt == nil {
+		// Enabled not required: run-once/dry-run may arm a disabled task.
+		if t.FireAt == nil {
 			continue
 		}
 		if t.Status != "armed" && t.Status != "fired" {
