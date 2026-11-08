@@ -123,40 +123,44 @@
   </div>
 
   <dialog id="taskDialog">
-    <form id="taskForm" class="dialog-box dialog-wide">
-      <h3 id="taskFormTitle">新建任务</h3>
-      <input type="hidden" name="taskId" value="" />
-      <input type="hidden" name="walletIdMirror" value="" />
-      <label>任务名称<input name="name" placeholder="可选" /></label>
-      <label>钱包
-        <select name="walletId" id="walletSelect" required></select>
-      </label>
-      <label>任务类型
-        <select name="taskType" id="typeSelect" required></select>
-      </label>
-      <p class="desc" id="typeDesc"></p>
-      <p class="desc" id="typeScheduleHint">定时：随任务类型</p>
-      <div class="form-row">
-        <label>Gas Limit<input name="gasLimit" type="number" /></label>
-        <label>Gas Price (gwei)<input name="gasPriceGwei" type="number" step="0.01" placeholder="空=节点建议" /></label>
+    <form id="taskForm" class="dialog-box dialog-wide task-form">
+      <div class="task-head">
+        <h3 id="taskFormTitle">新建任务</h3>
       </div>
-      <fieldset class="radio-row">
-        <legend>提前广播</legend>
-        <label class="check"><input type="radio" name="earlyBroadcast" value="follow" checked /> 跟随设置</label>
-        <label class="check"><input type="radio" name="earlyBroadcast" value="on" /> 开启</label>
-        <label class="check"><input type="radio" name="earlyBroadcast" value="off" /> 关闭</label>
-      </fieldset>
-      <label class="check"><input type="checkbox" name="stopAfterSuccess" checked /> 成功一次后停止</label>
-      <fieldset class="radio-row" id="claimModeFields" hidden>
-        <legend>领取方式</legend>
-        <label class="check"><input type="radio" name="claimMode" value="all" checked /> 领取全部 (claimAll)</label>
-        <label class="check"><input type="radio" name="claimMode" value="index" /> 指定编号</label>
-        <label class="claim-index-field" id="claimIndexField" hidden>编号
-          <input name="claimIndex" type="number" min="0" step="1" value="0" />
+      <div class="task-body">
+        <input type="hidden" name="taskId" value="" />
+        <input type="hidden" name="walletIdMirror" value="" />
+        <label>任务名称<input name="name" placeholder="可选" /></label>
+        <label>钱包
+          <select name="walletId" id="walletSelect" required></select>
         </label>
-      </fieldset>
-      <div id="taskArgsFields"></div>
-      <div class="form-actions">
+        <label>任务类型
+          <select name="taskType" id="typeSelect" required></select>
+        </label>
+        <p class="desc" id="typeDesc"></p>
+        <p class="desc" id="typeScheduleHint">定时：随任务类型</p>
+        <div class="form-row">
+          <label>Gas Limit<input name="gasLimit" type="number" /></label>
+          <label>Gas Price (gwei)<input name="gasPriceGwei" type="number" step="0.01" placeholder="空=节点建议" /></label>
+        </div>
+        <fieldset class="radio-row">
+          <legend>提前广播</legend>
+          <label class="check"><input type="radio" name="earlyBroadcast" value="follow" checked /> 跟随设置</label>
+          <label class="check"><input type="radio" name="earlyBroadcast" value="on" /> 开启</label>
+          <label class="check"><input type="radio" name="earlyBroadcast" value="off" /> 关闭</label>
+        </fieldset>
+        <label class="check"><input type="checkbox" name="stopAfterSuccess" checked /> 成功一次后停止</label>
+        <fieldset class="radio-row" id="claimModeFields" hidden>
+          <legend>领取方式</legend>
+          <label class="check"><input type="radio" name="claimMode" value="all" checked /> 领取全部 (claimAll)</label>
+          <label class="check"><input type="radio" name="claimMode" value="index" /> 指定编号</label>
+          <label class="claim-index-field" id="claimIndexField" hidden>编号
+            <input name="claimIndex" type="number" min="0" step="1" value="0" />
+          </label>
+        </fieldset>
+        <div id="taskArgsFields"></div>
+      </div>
+      <div class="form-actions task-foot">
         <button type="button" class="btn secondary" id="btnCancelTask">取消</button>
         <button type="submit" class="btn primary">保存</button>
       </div>

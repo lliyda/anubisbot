@@ -944,6 +944,46 @@ dialog::backdrop { background: rgba(18,21,26,0.45); }
 #btnProbeRpcUrl:disabled { opacity: 0.65; }
 .rpc-probe-hint { margin: 0; }
 .rpc-probe-hint.err { color: #b91c1c; }
+#taskDialog {
+  overflow: hidden;
+}
+#taskForm.task-form {
+  max-height: min(85vh, 720px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+}
+#taskForm .task-head {
+  flex: 0 0 auto;
+  padding: 16px 20px 12px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+#taskForm .task-head h3 { margin: 0; font-size: 16px; }
+#taskForm .task-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+}
+#taskForm .task-foot {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+  background: #f7f9fb;
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+}
 #presetDialog { max-width: 560px; width: min(560px, calc(100vw - 32px)); }
 #presetDialog .preset-form {
   max-height: min(85vh, 780px);
