@@ -970,7 +970,7 @@ function renderTaskLogRows(box, logs) {
     }
     const tone = row.bad ? "err" : row.ok ? "ok" : "";
     return `<div class="log-item ${tone}">
-      <div class="t">${new Date(l.at).toLocaleString()}</div>
+      <div class="t">${escapeHtml(fmtFireAt(l.at))}</div>
       <div>
         <strong>${escapeHtml(row.title)}</strong>
         ${row.detail ? `<div>${escapeHtml(row.detail)}</div>` : ""}
@@ -1209,7 +1209,7 @@ function renderLogs(force = false) {
         : "";
       const tone = row.bad || bad ? "err" : row.ok ? "ok" : "";
       return `<div class="log-item ${tone}">
-        <div class="t">${new Date(l.at).toLocaleString()}</div>
+        <div class="t">${escapeHtml(fmtFireAt(l.at))}</div>
         <div>
           <strong>${escapeHtml(row.title)}</strong>
           ${row.detail ? `<div class="log-msg">${escapeHtml(row.detail)}</div>` : ""}
@@ -1223,7 +1223,7 @@ function renderLogs(force = false) {
       ? `<a href="${state.explorer}/tx/${l.txHash}" target="_blank" rel="noreferrer">${escapeHtml(shortAddr(l.txHash))}</a>`
       : "";
     return `<div class="log-item ${bad ? "err" : ""}">
-      <div class="t">${new Date(l.at).toLocaleString()}</div>
+      <div class="t">${escapeHtml(fmtFireAt(l.at))}</div>
       <div>
         <strong>${escapeHtml(l.event)}</strong>${meta ? ` · ${meta}` : ""}
         <div class="log-msg">${escapeHtml(l.message || l.error || "")}</div>
