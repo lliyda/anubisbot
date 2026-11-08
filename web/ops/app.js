@@ -1,6 +1,7 @@
 const state = {
   health: null,
   presets: {},
+  schedules: [],
   tasks: [],
   wallets: [],
   balances: {},
@@ -98,8 +99,240 @@ function parseFireAtText(text) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function scheduleById(id) {
+  return (state.schedules || []).find((x) => x.id === id) || null;
+}
+
 function scheduleLabel(s) {
-  return ({ hourly: "每整点", daily_1159_cst: "每日 11:59", once: "仅一次" })[s] || s;
+  const builtin = { hourly: "每整点", daily_1159_cst: "每日 11:59", once: "仅一次" };
+  if (builtin[s]) return builtin[s];
+  const r = scheduleById(s);
+  if (r?.label) return r.label;
+  return s || "—";
+}
+
+function isFollowSchedule(s) {
+  const raw = String(s || "").trim();
+  return !raw || raw === "follow";
+}
+
+function effectiveTaskSchedule(task) {
+  if (!task) return "hourly";
+  if (!isFollowSchedule(task.schedule)) return task.schedule;
+  return state.presets[task.taskType]?.defaultSchedule || "hourly";
+}
+
+function taskScheduleDisplay(task) {
+  const lab = scheduleLabel(effectiveTaskSchedule(task));
+  return { text: lab, title: lab };
+}
+
+function scheduleOptionsList() {
+  return state.schedules?.length
+    ? state.schedules
+    : [
+        { id: "hourly", label: "每整点" },
+        { id: "daily_1159_cst", label: "每日 11:59" },
+        { id: "once", label: "仅一次" },
+      ];
+}
+
+function fillScheduleSelect(sel, selected) {
+  if (!sel) return;
+  const list = scheduleOptionsList();
+  const cur = selected || sel.value || "hourly";
+  sel.innerHTML = list.map((r) =>
+    `<option value="${escapeHtml(r.id)}">${escapeHtml(r.label || r.id)}</option>`
+  ).join("");
+  if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  else if (list.length) sel.value = list[0].id;
+}
+
+function fillPresetScheduleSelect(selected) {
+  fillScheduleSelect($("#presetScheduleSelect"), selected);
+}
+
+function fillTaskScheduleSelect(selected) {
+  const sel = $("#taskScheduleSelect");
+  if (!sel) return;
+  const t = $("#typeSelect")?.value;
+  const typeDef = state.presets[t]?.defaultSchedule || "hourly";
+  const list = scheduleOptionsList();
+  const cur = isFollowSchedule(selected) ? "follow" : (selected || "follow");
+  const followOpt = `<option value="follow">跟随默认（${escapeHtml(scheduleLabel(typeDef))}）</option>`;
+  sel.innerHTML = followOpt + list.map((r) =>
+    `<option value="${escapeHtml(r.id)}">${escapeHtml(r.label || r.id)}</option>`
+  ).join("");
+  if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  else sel.value = "follow";
+  const hint = $("#typeScheduleHint");
+  if (hint) {
+    hint.textContent = "选「跟随默认」则随任务类型默认定时变化；选具体项则仅本任务生效";
+  }
+}
+
+/** When task type changes: reset schedule to follow default. */
+function applyTypeDefaultSchedule() {
+  fillTaskScheduleSelect("follow");
+}
+
+const WEEKDAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+const WEEKDAY_CN = { mon: "一", tue: "二", wed: "三", thu: "四", fri: "五", sat: "六", sun: "日" };
+const WEEKDAY_ID = { mon: "m", tue: "t", wed: "w", thu: "h", fri: "f", sat: "a", sun: "u" };
+
+function normalizeWeekdaySelection(days) {
+  const set = new Set((days || []).filter((d) => WEEKDAY_ORDER.includes(d)));
+  if (!set.size) return "";
+  if (set.size === 7) return "every";
+  return WEEKDAY_ORDER.filter((d) => set.has(d)).join(",");
+}
+
+function readScheduleWeekdays() {
+  const panel = $("#scheduleWeekdayPanel");
+  if (!panel) return [];
+  return $$('input[type="checkbox"]:checked', panel).map((el) => el.value);
+}
+
+function weekdaySummaryText(weekday) {
+  const raw = String(weekday || "");
+  if (!raw) return "请选择";
+  if (raw === "every") return "每天";
+  return raw.split(",").map((d) => WEEKDAY_CN[d.trim()] || d).map((x) => (x.length === 1 ? "周" + x : x)).join("、");
+}
+
+function refreshScheduleWeekdayBtn() {
+  const btn = $("#scheduleWeekdayBtn");
+  if (!btn) return;
+  const weekday = normalizeWeekdaySelection(readScheduleWeekdays());
+  btn.textContent = weekdaySummaryText(weekday);
+}
+
+function setScheduleWeekdays(weekday) {
+  const panel = $("#scheduleWeekdayPanel");
+  if (!panel) return;
+  const raw = String(weekday || "");
+  const selected = raw === "every"
+    ? new Set(WEEKDAY_ORDER)
+    : new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+  $$('input[type="checkbox"]', panel).forEach((el) => {
+    el.checked = selected.has(el.value);
+  });
+  refreshScheduleWeekdayBtn();
+}
+
+function closeScheduleWeekdayPanel() {
+  const panel = $("#scheduleWeekdayPanel");
+  const btn = $("#scheduleWeekdayBtn");
+  if (panel) panel.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function readScheduleFormFields(form) {
+  const period = form.querySelector('input[name="period"]:checked')?.value || "daily";
+  const hourMode = form.querySelector('input[name="hourMode"]:checked')?.value || "every_hour";
+  let weekday = "";
+  if (period === "weekly") {
+    weekday = normalizeWeekdaySelection(readScheduleWeekdays());
+  }
+  const hour = hourMode === "at_hour" ? Number(form.hour?.value || 0) : 0;
+  const minute = Number(form.minute?.value || 0);
+  return { period, weekday, hourMode, hour, minute };
+}
+
+function autoScheduleLabel(fields) {
+  const hourPart = fields.hourMode === "every_hour"
+    ? `每整点第${fields.minute}分`
+    : `${String(fields.hour).padStart(2, "0")}:${String(fields.minute).padStart(2, "0")}`;
+  if (fields.period === "weekly") {
+    let dayPart = "每周每天";
+    if (fields.weekday && fields.weekday !== "every") {
+      dayPart = "每周" + fields.weekday.split(",").map((d) => WEEKDAY_CN[d] || d).join("、");
+    }
+    return `${dayPart} ${hourPart}`;
+  }
+  if (fields.hourMode === "every_hour") return hourPart;
+  return `每天 ${hourPart}`;
+}
+
+function autoScheduleId(fields) {
+  let id = "d_";
+  if (fields.period === "weekly") {
+    const token = (!fields.weekday || fields.weekday === "every")
+      ? "every"
+      : fields.weekday.split(",").map((d) => WEEKDAY_ID[d] || "").join("");
+    id = `w_${token}_`;
+  }
+  if (fields.hourMode === "every_hour") id += `eh_m${fields.minute}`;
+  else id += `h${fields.hour}_m${fields.minute}`;
+  return id.slice(0, 32);
+}
+
+function syncScheduleFormVisibility() {
+  const form = $("#scheduleForm");
+  if (!form) return;
+  const fields = readScheduleFormFields(form);
+  const weekWrap = $("#scheduleWeekdayWrap");
+  const hourWrap = $("#scheduleHourWrap");
+  if (weekWrap) weekWrap.hidden = fields.period !== "weekly";
+  if (hourWrap) hourWrap.hidden = fields.hourMode !== "at_hour";
+  if (fields.period !== "weekly") closeScheduleWeekdayPanel();
+  refreshScheduleWeekdayBtn();
+  const preview = $("#schedulePreview");
+  if (preview) {
+    const editing = !!(form.editId && form.editId.value);
+    preview.textContent = (editing ? "将保存：" : "将创建：") + autoScheduleLabel(fields);
+  }
+}
+
+function renderScheduleManageList() {
+  const box = $("#scheduleManageList");
+  if (!box) return;
+  const list = state.schedules || [];
+  if (!list.length) {
+    box.innerHTML = `<div class="desc">暂无定时</div>`;
+    return;
+  }
+  box.innerHTML = list.map((r) => {
+    const builtin = !!r.builtin;
+    return `<div class="task-manage-row" data-id="${escapeHtml(r.id)}">
+      <div class="task-manage-meta">
+        <strong>${escapeHtml(r.label || r.id)}</strong>
+        ${builtin ? `<span class="addr">内置</span>` : `<span class="addr">自定义</span>`}
+      </div>
+      <div class="task-manage-actions">
+        ${builtin ? "" : `<button type="button" class="btn secondary sm" data-act="edit-schedule">编辑</button>
+        <button type="button" class="btn secondary sm" data-act="del-schedule">删除</button>`}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function showScheduleEditor(rule) {
+  const form = $("#scheduleForm");
+  const dlg = $("#scheduleDialog");
+  const title = $("#scheduleDialogTitle");
+  if (!form || !dlg) return;
+  form.reset();
+  if (rule?.id) {
+    if (title) title.textContent = "编辑定时";
+    form.editId.value = rule.id;
+    const period = rule.period === "weekly" ? "weekly" : "daily";
+    form.querySelectorAll('input[name="period"]').forEach((r) => { r.checked = r.value === period; });
+    setScheduleWeekdays(rule.weekday || "");
+    const hourMode = rule.hourMode === "at_hour" ? "at_hour" : "every_hour";
+    form.querySelectorAll('input[name="hourMode"]').forEach((r) => { r.checked = r.value === hourMode; });
+    form.hour.value = rule.hour != null ? rule.hour : 11;
+    form.minute.value = rule.minute != null ? rule.minute : 0;
+  } else {
+    if (title) title.textContent = "新建定时";
+    form.editId.value = "";
+    setScheduleWeekdays("");
+    form.hour.value = 11;
+    form.minute.value = 0;
+  }
+  closeScheduleWeekdayPanel();
+  syncScheduleFormVisibility();
+  if (!dlg.open) dlg.showModal();
 }
 
 function shortAddr(a) {
@@ -522,6 +755,8 @@ function renderTasks(force = false) {
   body.innerHTML = list.map((t) => {
     const preset = state.presets[t.taskType] || {};
     const label = preset.label || t.taskType;
+    const schDisp = taskScheduleDisplay(t);
+    const effSch = effectiveTaskSchedule(t);
     const statusDot = t.status === "armed"
       ? '<i class="pulse"></i>'
       : t.status === "success"
@@ -534,9 +769,9 @@ function renderTasks(force = false) {
       <td class="col-name" title="${escapeHtml(t.walletName || "—")}">${escapeHtml(t.walletName || "—")}</td>
       ${addrCell(t.walletAddress)}
       <td class="col-type"><span class="badge ${escapeHtml(t.taskType)}">${escapeHtml(label)}</span></td>
-      <td class="col-schedule">${scheduleLabel(t.schedule)}</td>
+      <td class="col-schedule" title="${escapeHtml(schDisp.title)}">${escapeHtml(schDisp.text)}</td>
       <td class="mono col-fire">${
-        t.schedule === "once"
+        effSch === "once"
           ? `<input type="text" class="fire-edit" value="${escapeHtml(fireAtInputValue(t.fireAt))}" placeholder="2026/11/05 20:00:00" title="仅一次可编辑下次执行时间" />`
           : (!t.enabled ? "—" : escapeHtml(fmtFireAt(t.fireAt)))
       }</td>
@@ -906,7 +1141,7 @@ function showPresetEditor(id) {
     form.to.value = p.to || "";
     form.abi.value = formatAbiText(p.abi);
     form.function.value = presetFnName(p);
-    form.defaultSchedule.value = p.defaultSchedule || "hourly";
+    fillPresetScheduleSelect(p.defaultSchedule || "hourly");
     form.gasLimit.value = p.defaultParams?.gasLimit ?? "";
     form.needsLgnsApprove.checked = !!p.needsLgnsApprove;
   } else {
@@ -914,7 +1149,7 @@ function showPresetEditor(id) {
     if (title) title.textContent = "新建任务类型";
     idInput.value = "";
     idInput.readOnly = false;
-    form.defaultSchedule.value = "hourly";
+    fillPresetScheduleSelect("hourly");
     form.abi.value = "";
     form.function.value = "";
   }
@@ -1139,11 +1374,11 @@ function updateTypeDesc(opts = {}) {
   const t = $("#typeSelect").value;
   const p = state.presets[t];
   $("#typeDesc").textContent = p?.description || "";
-  const schHint = $("#typeScheduleHint");
-  if (schHint) {
-    schHint.textContent = p?.defaultSchedule
-      ? `定时：${scheduleLabel(p.defaultSchedule)}（随任务类型，不可单独改）`
-      : "定时：随任务类型";
+  if (opts.keepSchedule) {
+    const cur = $("#taskScheduleSelect")?.value;
+    fillTaskScheduleSelect(cur || "follow");
+  } else {
+    applyTypeDefaultSchedule();
   }
   const gas = document.querySelector('#taskForm [name="gasLimit"]');
   if (p?.defaultParams?.gasLimit) gas.value = p.defaultParams.gasLimit;
@@ -1226,7 +1461,8 @@ function openEditTaskDialog(task) {
   }
   form.taskType.value = task.taskType || "";
   const p = task.params || {};
-  updateTypeDesc({ resetClaim: false });
+  updateTypeDesc({ resetClaim: false, keepSchedule: true });
+  fillTaskScheduleSelect(isFollowSchedule(task.schedule) ? "follow" : (task.schedule || "follow"));
   if (p.gasLimit) form.gasLimit.value = p.gasLimit;
   form.gasPriceGwei.value = p.gasPriceGwei != null && p.gasPriceGwei !== "" ? p.gasPriceGwei : "";
   setEarlyBroadcastRadios(form, task.earlyBroadcast || "follow");
@@ -1426,6 +1662,7 @@ function openSettings(tab = "general") {
     f.ntpIntervalSec.value = st.ntpIntervalSec || 30;
   }).catch((e) => toast(e.message, true));
   if (tab === "params") renderPresetManageList();
+  if (tab === "schedules") renderScheduleManageList();
   $("#settingsDialog").showModal();
 }
 
@@ -1453,18 +1690,20 @@ async function refreshLogsLight() {
 async function refreshLists() {
   const failedOnly = $("#failedOnly").checked;
   // 余额由服务启动时缓存，打开网页不再打链上 RPC
-  const [rpc, presets, tasks, wallets, logs] = await Promise.all([
+  const [rpc, presets, tasks, wallets, logs, schedulesRes] = await Promise.all([
     api("/rpc"),
     api("/presets"),
     api("/tasks"),
     api("/wallets"),
     api("/logs?failedOnly=" + (failedOnly ? "1" : "0")),
+    api("/schedules").catch(() => ({ schedules: [] })),
   ]);
   state.rpcList = rpc.rpcs;
   state.activeIds = rpc.activeIds || state.activeIds;
   state.rtts = rpc.rtts || state.rtts;
   state.leads = rpc.leads || state.leads;
   state.presets = presets;
+  state.schedules = schedulesRes.schedules || [];
   state.tasks = tasks.tasks || [];
   state.wallets = wallets.wallets || [];
   state.balances = wallets.balances || {};
@@ -1478,7 +1717,9 @@ async function refreshLists() {
   if (!isTaskDialogOpen()) fillTypeSelect();
   fillSimTypeSelect();
   fillSimWalletSelect();
+  fillPresetScheduleSelect();
   renderPresetManageList();
+  renderScheduleManageList();
 }
 
 async function setActiveRpcs(ids) {
@@ -1972,6 +2213,11 @@ function bind() {
       return;
     }
     const name = (fd.get("name") || "").toString().trim();
+    const schedule = (fd.get("schedule") || "").toString().trim();
+    if (!schedule) {
+      toast("请选择定时", true);
+      return;
+    }
     const earlyRaw = (fd.get("earlyBroadcast") || "follow").toString();
     const earlyBroadcast = earlyRaw === "on" || earlyRaw === "off" ? earlyRaw : "follow";
     const stopAfterSuccess = fd.get("stopAfterSuccess") === "on";
@@ -1982,6 +2228,7 @@ function bind() {
           body: JSON.stringify({
             name,
             taskType,
+            schedule,
             earlyBroadcast,
             stopAfterSuccess,
             params,
@@ -1995,6 +2242,7 @@ function bind() {
             name: name || undefined,
             walletId,
             taskType,
+            schedule,
             enabled: true,
             earlyBroadcast,
             stopAfterSuccess,
@@ -2317,13 +2565,42 @@ function bind() {
 
   const settingsDlg = $("#settingsDialog");
   const presetDlg = $("#presetDialog");
+  const scheduleDlg = $("#scheduleDialog");
   bindDialogBackdrop(settingsDlg);
   bindDialogBackdrop(presetDlg);
+  bindDialogBackdrop(scheduleDlg);
   $("#btnSettings").addEventListener("click", () => openSettings("general"));
   $("#btnCloseSettings").addEventListener("click", () => settingsDlg.close());
   $("#btnAddPreset").addEventListener("click", () => showPresetEditor(null));
   $("#btnCancelPreset").addEventListener("click", () => clearPresetEditor());
   $("#btnBackPreset")?.addEventListener("click", () => clearPresetEditor());
+  $("#btnAddSchedule")?.addEventListener("click", () => showScheduleEditor(null));
+  $("#btnCancelSchedule")?.addEventListener("click", () => scheduleDlg?.close());
+  $("#scheduleForm")?.querySelectorAll('input[name="period"], input[name="hourMode"]').forEach((el) => {
+    el.addEventListener("change", syncScheduleFormVisibility);
+  });
+  $("#scheduleForm")?.querySelectorAll('input[name="hour"], input[name="minute"]').forEach((el) => {
+    el.addEventListener("input", syncScheduleFormVisibility);
+    el.addEventListener("change", syncScheduleFormVisibility);
+  });
+  $("#scheduleWeekdayBtn")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    const panel = $("#scheduleWeekdayPanel");
+    const btn = $("#scheduleWeekdayBtn");
+    if (!panel || !btn) return;
+    const open = panel.hidden;
+    panel.hidden = !open;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  $("#scheduleWeekdayPanel")?.addEventListener("change", () => {
+    refreshScheduleWeekdayBtn();
+    syncScheduleFormVisibility();
+  });
+  document.addEventListener("click", (e) => {
+    const root = $("#scheduleWeekdayMsel");
+    if (!root || root.contains(e.target)) return;
+    closeScheduleWeekdayPanel();
+  });
   $("#presetAbiInput")?.addEventListener("input", () => updatePresetAbiUI());
   $("#presetFunctionInput")?.addEventListener("change", () => updatePresetAbiUI());
   $("#presetFunctionInput")?.addEventListener("input", () => updatePresetAbiUI());
@@ -2332,7 +2609,73 @@ function bind() {
     btn.classList.add("active");
     $$(".tab-panel").forEach((p) => p.classList.toggle("active", p.id === "tab-" + btn.dataset.tab));
     if (btn.dataset.tab === "params") renderPresetManageList();
+    if (btn.dataset.tab === "schedules") renderScheduleManageList();
   }));
+
+  $("#scheduleManageList")?.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-act]");
+    if (!btn) return;
+    const row = btn.closest(".task-manage-row");
+    const id = row?.dataset.id;
+    if (!id) return;
+    if (btn.dataset.act === "edit-schedule") {
+      const rule = scheduleById(id);
+      if (rule && !rule.builtin) showScheduleEditor(rule);
+      return;
+    }
+    if (btn.dataset.act === "del-schedule") {
+      if (!confirm(`确定删除定时「${id}」？`)) return;
+      try {
+        await api(`/schedules/${id}`, { method: "DELETE" });
+        toast("定时已删除");
+        await refreshLists();
+      } catch (err) {
+        toast(err.message, true);
+      }
+    }
+  });
+
+  $("#scheduleForm")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const editId = String(new FormData(form).get("editId") || "").trim();
+    const fields = readScheduleFormFields(form);
+    if (fields.period === "weekly" && !fields.weekday) {
+      toast("请至少选择一个星期", true);
+      return;
+    }
+    if (!Number.isInteger(fields.minute) || fields.minute < 0 || fields.minute > 59) {
+      toast("分钟须为 0–59 的整数", true);
+      return;
+    }
+    if (fields.hourMode === "at_hour" && (!Number.isInteger(fields.hour) || fields.hour < 0 || fields.hour > 23)) {
+      toast("小时须为 0–23 的整数", true);
+      return;
+    }
+    const body = {
+      id: editId || autoScheduleId(fields),
+      label: autoScheduleLabel(fields),
+      period: fields.period,
+      weekday: fields.period === "weekly" ? fields.weekday : "",
+      hourMode: fields.hourMode,
+      hour: fields.hour,
+      minute: fields.minute,
+    };
+    try {
+      if (editId) {
+        await api(`/schedules/${editId}`, { method: "PUT", body: JSON.stringify(body) });
+        toast("定时已更新");
+      } else {
+        await api("/schedules", { method: "POST", body: JSON.stringify(body) });
+        toast("定时已创建");
+      }
+      scheduleDlg?.close();
+      await refreshLists();
+    } catch (err) {
+      const msg = err.message === "duplicate schedule" ? "已存在相同定时" : err.message;
+      toast(msg, true);
+    }
+  });
 
   $("#settingsForm").addEventListener("submit", async (e) => {
     e.preventDefault();

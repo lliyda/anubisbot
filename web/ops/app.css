@@ -414,8 +414,9 @@ td.addr-cell {
 #taskTable th:nth-child(5),
 #taskTable td.col-schedule {
   width: 6.5rem;
-  overflow: visible;
-  text-overflow: clip;
+  max-width: 6.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #taskTable th:nth-child(6),
 #taskTable td.col-fire {
@@ -703,6 +704,92 @@ dialog::backdrop { background: rgba(18,21,26,0.45); }
 }
 .claim-index-field[hidden] {
   display: none !important;
+}
+#scheduleForm [hidden] {
+  display: none !important;
+}
+#taskForm [hidden],
+.radio-row[hidden] {
+  display: none !important;
+}
+#scheduleWeekdayWrap.field {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+#scheduleWeekdayWrap .msel {
+  position: relative;
+}
+#scheduleWeekdayBtn {
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 10px;
+  font: 500 13px var(--font);
+  color: var(--ink);
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+#scheduleWeekdayBtn:hover { background: #f7f9fb; }
+#scheduleDialog {
+  overflow: visible;
+}
+#scheduleWeekdayPanel {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  max-height: 168px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+#scheduleWeekdayPanel[hidden] {
+  display: none !important;
+}
+#scheduleWeekdayPanel .msel-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+#scheduleWeekdayPanel .msel-opt:hover { background: #f3faf8; }
+#scheduleWeekdayPanel .msel-opt input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+  margin: 0;
+}
+#scheduleWeekdayPanel .msel-opt::after {
+  content: "";
+  width: 1em;
+  text-align: center;
+  color: var(--accent, #0f766e);
+  font-weight: 700;
+}
+#scheduleWeekdayPanel .msel-opt:has(input:checked)::after {
+  content: "✓";
+}
+#scheduleWeekdayPanel .msel-opt:has(input:checked) {
+  background: #eef8f5;
 }
 .claim-index-field input {
   width: 88px;

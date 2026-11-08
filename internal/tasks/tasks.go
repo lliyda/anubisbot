@@ -90,10 +90,60 @@ type fileShape struct {
 	Tasks []Task `json:"tasks"`
 }
 
+// ScheduleFollow means the task uses presets[taskType].DefaultSchedule at runtime.
+const ScheduleFollow = "follow"
+
+// ScheduleComputer resolves next fire times for builtin + custom schedules.
+type ScheduleComputer interface {
+	ComputeFireAt(schedule string, now time.Time, delayMs int, once *time.Time) time.Time
+	IsRepeating(schedule string) bool
+}
+
 type Store struct {
-	mu   sync.RWMutex
-	path string
-	list []Task
+	mu        sync.RWMutex
+	path      string
+	list      []Task
+	presets   map[string]config.Preset
+	Schedules ScheduleComputer // optional; nil → builtin-only ComputeFireAt
+}
+
+// SetSchedules wires custom schedule resolution (call once at startup).
+func (s *Store) SetSchedules(c ScheduleComputer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Schedules = c
+}
+
+// SetPresets wires task-type defaults for ScheduleFollow resolution.
+func (s *Store) SetPresets(p map[string]config.Preset) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.presets = p
+}
+
+// IsFollowSchedule reports whether raw means "use type default".
+func IsFollowSchedule(raw string) bool {
+	s := strings.TrimSpace(raw)
+	return s == "" || s == ScheduleFollow
+}
+
+// EffectiveSchedule resolves follow/empty to the task type's defaultSchedule.
+func (s *Store) EffectiveSchedule(t Task) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.effectiveScheduleLocked(t)
+}
+
+func (s *Store) effectiveScheduleLocked(t Task) string {
+	if !IsFollowSchedule(t.Schedule) {
+		return strings.TrimSpace(t.Schedule)
+	}
+	if p, ok := s.presets[t.TaskType]; ok {
+		if d := strings.TrimSpace(p.DefaultSchedule); d != "" {
+			return d
+		}
+	}
+	return "hourly"
 }
 
 func Load(path string) (*Store, error) {
@@ -177,9 +227,12 @@ func (s *Store) Create(t Task, presets map[string]config.Preset) (Task, error) {
 		t.Status = "idle"
 	}
 	t.EarlyBroadcast = NormalizeEarlyBroadcast(t.EarlyBroadcast)
+	if IsFollowSchedule(t.Schedule) {
+		t.Schedule = ScheduleFollow
+	} else {
+		t.Schedule = strings.TrimSpace(t.Schedule)
+	}
 	if p, ok := presets[t.TaskType]; ok {
-		// schedule always follows task type
-		t.Schedule = p.DefaultSchedule
 		if t.Params.GasLimit == 0 {
 			t.Params.GasLimit = p.DefaultParams.GasLimit
 		}
@@ -219,6 +272,12 @@ func (s *Store) SyncAllSchedules(presets map[string]config.Preset, now time.Time
 
 // SyncScheduleForType sets schedule on all tasks of taskType and normalizes fireAt.
 func (s *Store) SyncScheduleForType(taskType, schedule string, now time.Time) (int, error) {
+	return s.SyncScheduleFollowers(taskType, "", schedule, now)
+}
+
+// SyncScheduleFollowers updates tasks of taskType to toSchedule.
+// If fromSchedule is non-empty, only tasks still on fromSchedule are updated (custom schedules kept).
+func (s *Store) SyncScheduleFollowers(taskType, fromSchedule, toSchedule string, now time.Time) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n := 0
@@ -226,10 +285,70 @@ func (s *Store) SyncScheduleForType(taskType, schedule string, now time.Time) (i
 		if s.list[i].TaskType != taskType {
 			continue
 		}
+		if fromSchedule != "" && s.list[i].Schedule != fromSchedule {
+			continue
+		}
 		t := s.list[i]
 		before := t
-		t.Schedule = schedule
-		normalizeFireAtLocked(&t, now)
+		t.Schedule = toSchedule
+		s.normalizeFireAtLocked(&t, now)
+		if taskFireEqual(before, t) {
+			continue
+		}
+		s.list[i] = t
+		n++
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	if err := s.saveLocked(); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// RecomputeFollowers renormalizes fireAt for follow-schedule tasks of taskType (does not change Schedule).
+func (s *Store) RecomputeFollowers(taskType string, now time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := range s.list {
+		if s.list[i].TaskType != taskType || !IsFollowSchedule(s.list[i].Schedule) {
+			continue
+		}
+		t := s.list[i]
+		before := t
+		s.normalizeFireAtLocked(&t, now)
+		if taskFireEqual(before, t) {
+			continue
+		}
+		s.list[i] = t
+		n++
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	if err := s.saveLocked(); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// SyncBySchedule renormalizes fireAt for all tasks using the given schedule id
+// (including follow tasks whose effective schedule resolves to it).
+func (s *Store) SyncBySchedule(schedule string, now time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := range s.list {
+		t0 := s.list[i]
+		if t0.Schedule != schedule && s.effectiveScheduleLocked(t0) != schedule {
+			continue
+		}
+		t := t0
+		before := t
+		t.FireAt = nil
+		s.normalizeFireAtLocked(&t, now)
 		if taskFireEqual(before, t) {
 			continue
 		}
@@ -253,7 +372,7 @@ func (s *Store) NormalizeAllFireAts(now time.Time) (int, error) {
 	for i := range s.list {
 		t := s.list[i]
 		before := t
-		normalizeFireAtLocked(&t, now)
+		s.normalizeFireAtLocked(&t, now)
 		if taskFireEqual(before, t) {
 			continue
 		}
@@ -287,33 +406,37 @@ func hourlyAlignedCST(t time.Time) bool {
 	return c.Minute() == 0 && c.Second() == 0
 }
 
-func normalizeFireAtLocked(t *Task, now time.Time) {
-	switch t.Schedule {
-	case "hourly", "daily_1159_cst":
-		if !t.Enabled {
-			if t.FireAt != nil {
-				t.FireAt = nil
-			}
-			if t.Status == "armed" {
-				t.Status = "idle"
-			}
-			return
-		}
-		want := ComputeFireAt(t.Schedule, now, t.Params.FireDelayMs, nil)
-		need := t.FireAt == nil || !t.FireAt.After(now) || t.Status != "armed"
-		if t.Schedule == "hourly" && t.FireAt != nil && !hourlyAlignedCST(*t.FireAt) {
-			need = true
-		}
-		if t.FireAt != nil && !t.FireAt.Equal(want) {
-			need = true
-		}
-		if need {
-			fa := want
-			t.FireAt = &fa
-			t.Status = "armed"
-			t.LastError = ""
-		}
-	case "once":
+func (s *Store) isRepeating(schedule string) bool {
+	if s.Schedules != nil {
+		return s.Schedules.IsRepeating(schedule)
+	}
+	return schedule == "hourly" || schedule == "daily_1159_cst"
+}
+
+// IsRepeatingSchedule reports whether the schedule auto-rearms after a run.
+func (s *Store) IsRepeatingSchedule(schedule string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isRepeating(schedule)
+}
+
+// IsRepeatingTask reports whether the task's effective schedule auto-rearms.
+func (s *Store) IsRepeatingTask(t Task) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isRepeating(s.effectiveScheduleLocked(t))
+}
+
+func (s *Store) computeFireAt(schedule string, now time.Time, delayMs int, once *time.Time) time.Time {
+	if s.Schedules != nil {
+		return s.Schedules.ComputeFireAt(schedule, now, delayMs, once)
+	}
+	return ComputeFireAt(schedule, now, delayMs, once)
+}
+
+func (s *Store) normalizeFireAtLocked(t *Task, now time.Time) {
+	eff := s.effectiveScheduleLocked(*t)
+	if eff == "once" {
 		if !t.Enabled {
 			// keep future once time for editing; drop past leftovers
 			if t.FireAt != nil && !t.FireAt.After(now) {
@@ -323,6 +446,33 @@ func normalizeFireAtLocked(t *Task, now time.Time) {
 				t.Status = "idle"
 			}
 		}
+		return
+	}
+	if !s.isRepeating(eff) {
+		return
+	}
+	if !t.Enabled {
+		if t.FireAt != nil {
+			t.FireAt = nil
+		}
+		if t.Status == "armed" {
+			t.Status = "idle"
+		}
+		return
+	}
+	want := s.computeFireAt(eff, now, t.Params.FireDelayMs, nil)
+	need := t.FireAt == nil || !t.FireAt.After(now) || t.Status != "armed"
+	if eff == "hourly" && t.FireAt != nil && !hourlyAlignedCST(*t.FireAt) {
+		need = true
+	}
+	if t.FireAt != nil && !t.FireAt.Equal(want) {
+		need = true
+	}
+	if need {
+		fa := want
+		t.FireAt = &fa
+		t.Status = "armed"
+		t.LastError = ""
 	}
 }
 
@@ -353,12 +503,15 @@ func (s *Store) Patch(id string, patch map[string]any) (Task, error) {
 	return Task{}, fmt.Errorf("task not found")
 }
 
-// UpdateEditable updates name, taskType, earlyBroadcast, stopAfterSuccess, and editable gas/args from the edit dialog.
+// UpdateEditable updates name, taskType, schedule, earlyBroadcast, stopAfterSuccess, and editable gas/args from the edit dialog.
 // Other params fields (claimArg, burnAmount, fireDelayMs) are preserved.
-// taskType changes update schedule from presets and realign fireAt.
-func (s *Store) UpdateEditable(id, name, taskType, earlyBroadcast string, stopAfterSuccess bool, params TaskParams, presets map[string]config.Preset, now time.Time) (Task, error) {
+// Empty schedule keeps the current value; empty on type change falls back to ScheduleFollow.
+func (s *Store) UpdateEditable(id, name, taskType, schedule, earlyBroadcast string, stopAfterSuccess bool, params TaskParams, presets map[string]config.Preset, now time.Time) (Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if presets != nil {
+		s.presets = presets
+	}
 	idx := -1
 	for i := range s.list {
 		if s.list[i].ID == id {
@@ -374,6 +527,7 @@ func (s *Store) UpdateEditable(id, name, taskType, earlyBroadcast string, stopAf
 		taskType = t.TaskType
 	}
 	typeChanged := taskType != t.TaskType
+	schedule = strings.TrimSpace(schedule)
 	var newPreset config.Preset
 	if typeChanged {
 		p, ok := presets[taskType]
@@ -389,10 +543,20 @@ func (s *Store) UpdateEditable(id, name, taskType, earlyBroadcast string, stopAf
 			}
 		}
 		t.TaskType = taskType
-		t.Schedule = p.DefaultSchedule
+		if schedule == "" {
+			schedule = ScheduleFollow
+		}
 		newPreset = p
 	} else if _, ok := presets[taskType]; taskType != "" && !ok {
 		return Task{}, fmt.Errorf("unknown task type")
+	}
+	if IsFollowSchedule(schedule) && schedule != "" {
+		schedule = ScheduleFollow
+	}
+	scheduleChanged := false
+	if schedule != "" && schedule != t.Schedule {
+		t.Schedule = schedule
+		scheduleChanged = true
 	}
 	merged := t.Params
 	if params.GasLimit != 0 {
@@ -436,11 +600,11 @@ func (s *Store) UpdateEditable(id, name, taskType, earlyBroadcast string, stopAf
 	t.EarlyBroadcast = NormalizeEarlyBroadcast(earlyBroadcast)
 	t.StopAfterSuccess = stopAfterSuccess
 	t.Params = merged
-	if typeChanged {
+	if typeChanged || scheduleChanged {
 		// Force next-run recompute from new schedule + now.
 		t.FireAt = nil
 	}
-	normalizeFireAtLocked(&t, now)
+	s.normalizeFireAtLocked(&t, now)
 	s.list[idx] = t
 	if err := s.saveLocked(); err != nil {
 		return Task{}, err
@@ -473,7 +637,7 @@ func (s *Store) SetOnceFireAt(id string, fireAt time.Time) (Task, error) {
 			continue
 		}
 		t := s.list[i]
-		if t.Schedule != "once" {
+		if s.effectiveScheduleLocked(t) != "once" {
 			return Task{}, fmt.Errorf("fireAt editable only when schedule is once")
 		}
 		fa := fireAt.UTC()
@@ -541,7 +705,7 @@ func (s *Store) Arm(id string, now time.Time, fireAtOverride *time.Time) (Task, 
 			fa = fireAtOverride.UTC()
 			// keep original schedule (dry-run must not rewrite hourly/1159 to once)
 		} else {
-			fa = ComputeFireAt(t.Schedule, now, t.Params.FireDelayMs, t.FireAt)
+			fa = s.computeFireAt(s.effectiveScheduleLocked(t), now, t.Params.FireDelayMs, t.FireAt)
 		}
 		t.FireAt = &fa
 		t.Status = "armed"
@@ -631,7 +795,7 @@ func EnsureDefaults(s *Store, wal WalletRef, presets map[string]config.Preset) (
 			WalletName:    wal.Name,
 			WalletAddress: wal.Address,
 			TaskType:      tt,
-			Schedule:      p.DefaultSchedule,
+			Schedule:      ScheduleFollow,
 			Enabled:       false,
 			Status:        "idle",
 			Params: TaskParams{

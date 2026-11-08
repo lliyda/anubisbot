@@ -18,6 +18,7 @@ import (
 	"anubisbot/internal/logstore"
 	"anubisbot/internal/rpc"
 	"anubisbot/internal/scheduler"
+	"anubisbot/internal/schedules"
 	"anubisbot/internal/settings"
 	"anubisbot/internal/tasks"
 	"anubisbot/internal/timesync"
@@ -56,6 +57,7 @@ type Server struct {
 	Sched     *scheduler.Scheduler
 	Runner    *batch.Runner
 	Settings  *settings.Store
+	Schedules *schedules.Store
 	WebFS     fs.FS
 }
 
@@ -158,6 +160,10 @@ func (s *Server) Router() http.Handler {
 		r.Get("/presets", s.handlePresets)
 		r.Put("/presets/{id}", s.handlePutPreset)
 		r.Delete("/presets/{id}", s.handleDeletePreset)
+		r.Get("/schedules", s.handleListSchedules)
+		r.Post("/schedules", s.handleCreateSchedule)
+		r.Put("/schedules/{id}", s.handleUpdateSchedule)
+		r.Delete("/schedules/{id}", s.handleDeleteSchedule)
 		r.Get("/wallets", s.handleWallets)
 		r.Post("/wallets", s.handleAddWallet)
 		r.Post("/wallets/import", s.handleImportWallet)
@@ -520,6 +526,12 @@ func (s *Server) setPresetsLocked(next map[string]config.Preset) {
 	if s.Runner != nil {
 		s.Runner.Presets = next
 	}
+	if s.TasksSim != nil {
+		s.TasksSim.SetPresets(next)
+	}
+	if s.TasksLive != nil {
+		s.TasksLive.SetPresets(next)
+	}
 }
 
 func validatePreset(p *config.Preset) string {
@@ -534,13 +546,46 @@ func validatePreset(p *config.Preset) string {
 	if !ethAddrRE.MatchString(p.To) {
 		return "invalid to address"
 	}
-	switch p.DefaultSchedule {
-	case "hourly", "daily_1159_cst", "once":
-	default:
-		return "defaultSchedule must be hourly, daily_1159_cst, or once"
+	if p.DefaultSchedule == "" {
+		return "defaultSchedule required"
 	}
 	if err := txbuild.NormalizePresetFromABI(p); err != nil {
 		return err.Error()
+	}
+	return ""
+}
+
+func (s *Server) validateTaskSchedule(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "schedule required"
+	}
+	if id == tasks.ScheduleFollow {
+		return ""
+	}
+	if s.Schedules == nil {
+		switch id {
+		case "hourly", "daily_1159_cst", "once":
+			return ""
+		default:
+			return "unknown schedule"
+		}
+	}
+	if !s.Schedules.Exists(id) {
+		return "unknown schedule"
+	}
+	return ""
+}
+
+func (s *Server) validatePresetSchedule(p *config.Preset) string {
+	if msg := validatePreset(p); msg != "" {
+		return msg
+	}
+	if msg := s.validateTaskSchedule(p.DefaultSchedule); msg != "" {
+		if msg == "unknown schedule" {
+			return "unknown defaultSchedule"
+		}
+		return msg
 	}
 	return ""
 }
@@ -556,11 +601,15 @@ func (s *Server) handlePutPreset(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad json")
 		return
 	}
-	if msg := validatePreset(&body); msg != "" {
+	if msg := s.validatePresetSchedule(&body); msg != "" {
 		writeErr(w, 400, msg)
 		return
 	}
 	s.presetsMu.Lock()
+	oldDefault := ""
+	if prev, ok := s.Presets[id]; ok {
+		oldDefault = prev.DefaultSchedule
+	}
 	next := clonePresets(s.Presets)
 	next[id] = body
 	if err := config.SavePresets(s.Env.PresetsPath, next); err != nil {
@@ -571,14 +620,29 @@ func (s *Server) handlePutPreset(w http.ResponseWriter, r *http.Request) {
 	s.setPresetsLocked(next)
 	s.presetsMu.Unlock()
 
-	synced, err := s.Tasks.SyncScheduleForType(id, body.DefaultSchedule, s.Syncer.NowChain())
-	if err != nil {
-		writeErr(w, 500, err.Error())
-		return
+	synced := 0
+	if body.DefaultSchedule != "" && body.DefaultSchedule != oldDefault {
+		now := s.Syncer.NowChain()
+		if s.TasksSim != nil {
+			if n, err := s.TasksSim.RecomputeFollowers(id, now); err != nil {
+				writeErr(w, 500, err.Error())
+				return
+			} else {
+				synced += n
+			}
+		}
+		if s.TasksLive != nil {
+			if n, err := s.TasksLive.RecomputeFollowers(id, now); err != nil {
+				writeErr(w, 500, err.Error())
+				return
+			} else {
+				synced += n
+			}
+		}
 	}
 	msg := "preset " + id
 	if synced > 0 {
-		msg += "; synced schedule on tasks"
+		msg += "; recomputed follow-schedule tasks"
 	}
 	s.Logs.Add(logstore.Entry{Event: "preset_saved", Message: msg})
 	writeJSON(w, 200, map[string]any{"id": id, "preset": body, "syncedTasks": synced})
@@ -610,6 +674,121 @@ func (s *Server) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 	}
 	s.setPresetsLocked(next)
 	s.Logs.Add(logstore.Entry{Event: "preset_deleted", Message: "preset " + id})
+	writeJSON(w, 200, map[string]string{"ok": "1"})
+}
+
+func (s *Server) handleListSchedules(w http.ResponseWriter, r *http.Request) {
+	if s.Schedules == nil {
+		writeJSON(w, 200, map[string]any{"schedules": schedules.Builtins()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"schedules": s.Schedules.List()})
+}
+
+func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
+	if s.Schedules == nil {
+		writeErr(w, 500, "schedules unavailable")
+		return
+	}
+	var body schedules.Rule
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad json")
+		return
+	}
+	created, err := s.Schedules.Create(body)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	s.Logs.Add(logstore.Entry{Event: "schedule_created", Message: "schedule " + created.ID})
+	writeJSON(w, 200, created)
+}
+
+func (s *Server) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	if s.Schedules == nil {
+		writeErr(w, 500, "schedules unavailable")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	var body schedules.Rule
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "bad json")
+		return
+	}
+	updated, err := s.Schedules.Update(id, body)
+	if err != nil {
+		msg := err.Error()
+		if msg == "schedule not found" {
+			writeErr(w, 404, msg)
+			return
+		}
+		writeErr(w, 400, msg)
+		return
+	}
+	now := s.Syncer.NowChain()
+	synced := 0
+	if s.TasksSim != nil {
+		if n, err := s.TasksSim.SyncBySchedule(id, now); err == nil {
+			synced += n
+		}
+	}
+	if s.TasksLive != nil {
+		if n, err := s.TasksLive.SyncBySchedule(id, now); err == nil {
+			synced += n
+		}
+	}
+	s.Logs.Add(logstore.Entry{
+		Event:   "schedule_updated",
+		Message: "schedule " + id,
+	})
+	writeJSON(w, 200, map[string]any{"schedule": updated, "syncedTasks": synced})
+}
+
+func (s *Server) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
+	if s.Schedules == nil {
+		writeErr(w, 500, "schedules unavailable")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if schedules.IsBuiltinID(id) {
+		writeErr(w, 400, "builtin schedule is read-only")
+		return
+	}
+	s.presetsMu.Lock()
+	for pid, p := range s.Presets {
+		if p.DefaultSchedule == id {
+			s.presetsMu.Unlock()
+			writeErr(w, 409, "schedule in use by preset "+pid)
+			return
+		}
+	}
+	s.presetsMu.Unlock()
+	if s.TasksSim != nil {
+		for _, t := range s.TasksSim.List() {
+			if t.Schedule == id {
+				writeErr(w, 409, "schedule in use by tasks")
+				return
+			}
+		}
+	}
+	if s.TasksLive != nil {
+		for _, t := range s.TasksLive.List() {
+			if t.Schedule == id {
+				writeErr(w, 409, "schedule in use by tasks")
+				return
+			}
+		}
+	}
+	if err := s.Schedules.Delete(id); err != nil {
+		msg := err.Error()
+		if msg == "schedule not found" {
+			writeErr(w, 404, msg)
+			return
+		}
+		writeErr(w, 400, msg)
+		return
+	}
+	s.Logs.Add(logstore.Entry{Event: "schedule_deleted", Message: "schedule " + id})
 	writeJSON(w, 200, map[string]string{"ok": "1"})
 }
 
@@ -835,10 +1014,16 @@ func (s *Server) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 	s.presetsMu.Lock()
 	presets := s.Presets
 	s.presetsMu.Unlock()
-	if p, ok := presets[t.TaskType]; ok {
-		t.Schedule = p.DefaultSchedule
-	} else {
+	if _, ok := presets[t.TaskType]; !ok {
 		writeErr(w, 400, "unknown task type")
+		return
+	}
+	t.Schedule = strings.TrimSpace(t.Schedule)
+	if tasks.IsFollowSchedule(t.Schedule) {
+		t.Schedule = tasks.ScheduleFollow
+	}
+	if msg := s.validateTaskSchedule(t.Schedule); msg != "" {
+		writeErr(w, 400, msg)
 		return
 	}
 	for _, existing := range s.Tasks.List() {
@@ -877,7 +1062,6 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 	delete(patch, "walletName")
 	delete(patch, "id")
 	delete(patch, "enabled")
-	delete(patch, "schedule") // schedule follows task type only
 
 	if raw, ok := patch["fireAt"]; ok {
 		delete(patch, "fireAt")
@@ -910,10 +1094,11 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 
 	_, hasName := patch["name"]
 	_, hasType := patch["taskType"]
+	_, hasSchedule := patch["schedule"]
 	_, hasParams := patch["params"]
 	_, hasEarly := patch["earlyBroadcast"]
 	_, hasStopAfter := patch["stopAfterSuccess"]
-	if hasName || hasType || hasParams || hasEarly || hasStopAfter {
+	if hasName || hasType || hasSchedule || hasParams || hasEarly || hasStopAfter {
 		var name string
 		if hasName {
 			switch v := patch["name"].(type) {
@@ -936,6 +1121,24 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 			default:
 				writeErr(w, 400, "invalid taskType")
 				return
+			}
+		}
+		schedule := ""
+		if hasSchedule {
+			switch v := patch["schedule"].(type) {
+			case string:
+				schedule = strings.TrimSpace(v)
+			case nil:
+				schedule = ""
+			default:
+				writeErr(w, 400, "invalid schedule")
+				return
+			}
+			if schedule != "" {
+				if msg := s.validateTaskSchedule(schedule); msg != "" {
+					writeErr(w, 400, msg)
+					return
+				}
 			}
 		}
 		earlyBroadcast := "follow"
@@ -991,7 +1194,7 @@ func (s *Server) handlePatchTask(w http.ResponseWriter, r *http.Request) {
 		if s.Syncer != nil {
 			now = s.Syncer.NowChain()
 		}
-		t, err := s.Tasks.UpdateEditable(id, name, taskType, earlyBroadcast, stopAfterSuccess, params, presets, now)
+		t, err := s.Tasks.UpdateEditable(id, name, taskType, schedule, earlyBroadcast, stopAfterSuccess, params, presets, now)
 		if err != nil {
 			msg := err.Error()
 			if msg == "task not found" {
@@ -1031,19 +1234,9 @@ func (s *Server) handleEnableTask(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, t)
 		return
 	}
-	t0, ok := s.Tasks.Get(id)
-	if !ok {
+	if _, ok := s.Tasks.Get(id); !ok {
 		writeErr(w, 404, "task not found")
 		return
-	}
-	s.presetsMu.Lock()
-	p, pok := s.Presets[t0.TaskType]
-	s.presetsMu.Unlock()
-	if pok && p.DefaultSchedule != "" && t0.Schedule != p.DefaultSchedule {
-		if _, err := s.Tasks.SyncScheduleForType(t0.TaskType, p.DefaultSchedule, s.Syncer.NowChain()); err != nil {
-			writeErr(w, 500, err.Error())
-			return
-		}
 	}
 	if _, err := s.Tasks.SetEnabled(id, true); err != nil {
 		writeErr(w, 400, err.Error())

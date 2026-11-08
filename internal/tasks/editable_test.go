@@ -24,6 +24,7 @@ func TestSyncWalletNameAndUpdateEditable(t *testing.T) {
 			DefaultParams:   config.PresetParams{BurnAmount: "500000000000", GasLimit: 675000},
 		},
 	}
+	st.SetPresets(presets)
 	now := time.Date(2026, 11, 6, 15, 30, 0, 0, time.FixedZone("CST", 8*3600))
 
 	emptyName, err := st.Create(Task{
@@ -35,6 +36,9 @@ func TestSyncWalletNameAndUpdateEditable(t *testing.T) {
 	}
 	if emptyName.Name != "" {
 		t.Fatalf("Create must not auto-fill name from Label, got %q", emptyName.Name)
+	}
+	if emptyName.Schedule != ScheduleFollow {
+		t.Fatalf("Create empty schedule want follow, got %q", emptyName.Schedule)
 	}
 
 	a, err := st.Create(Task{
@@ -68,7 +72,7 @@ func TestSyncWalletNameAndUpdateEditable(t *testing.T) {
 	}
 
 	gwei := 5000.0
-	updated, err := st.UpdateEditable(a.ID, "备注", "lgns_burn", "on", true, TaskParams{
+	updated, err := st.UpdateEditable(a.ID, "备注", "lgns_burn", "", "on", true, TaskParams{
 		GasLimit: 500000, GasPriceGwei: &gwei,
 	}, presets, now)
 	if err != nil {
@@ -84,13 +88,13 @@ func TestSyncWalletNameAndUpdateEditable(t *testing.T) {
 		t.Fatalf("stopAfterSuccess want true")
 	}
 
-	_, err = st.UpdateEditable(a.ID, "x", "fixed_price", "follow", true, TaskParams{}, presets, now)
+	_, err = st.UpdateEditable(a.ID, "x", "fixed_price", "", "follow", true, TaskParams{}, presets, now)
 	if err == nil || err.Error() != "wallet already has this task type" {
 		t.Fatalf("want dup type error, got %v", err)
 	}
 
 	gwei2 := 1000.0
-	kept, err := st.UpdateEditable(helix.ID, "", "helix", "off", false, TaskParams{
+	kept, err := st.UpdateEditable(helix.ID, "", "helix", "", "off", false, TaskParams{
 		GasLimit: 675000, GasPriceGwei: &gwei2,
 	}, presets, now)
 	if err != nil {
@@ -112,15 +116,85 @@ func TestSyncWalletNameAndUpdateEditable(t *testing.T) {
 		t.Fatalf("stopAfterSuccess want false")
 	}
 
-	switched, err := st.UpdateEditable(a.ID, "helix任务", "helix", "follow", false, TaskParams{GasLimit: 675000}, presets, now)
+	switched, err := st.UpdateEditable(a.ID, "helix任务", "helix", "", "follow", false, TaskParams{GasLimit: 675000}, presets, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if switched.TaskType != "helix" || switched.Schedule != "daily_1159_cst" {
+	if switched.TaskType != "helix" || switched.Schedule != ScheduleFollow {
 		t.Fatalf("type switch failed: %+v", switched)
+	}
+	if got := st.EffectiveSchedule(switched); got != "daily_1159_cst" {
+		t.Fatalf("effective after type switch=%q", got)
 	}
 	wantFire := ComputeFireAt("daily_1159_cst", now, switched.Params.FireDelayMs, nil)
 	if switched.FireAt == nil || !switched.FireAt.Equal(wantFire) {
 		t.Fatalf("type switch fireAt=%v want %v", switched.FireAt, wantFire)
+	}
+
+	custom, err := st.UpdateEditable(helix.ID, "", "helix", "hourly", "follow", false, TaskParams{GasLimit: 675000}, presets, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if custom.Schedule != "hourly" {
+		t.Fatalf("custom schedule want hourly, got %q", custom.Schedule)
+	}
+}
+
+func TestFollowScheduleEffectiveAndRecompute(t *testing.T) {
+	dir := t.TempDir()
+	st, err := Load(filepath.Join(dir, "tasks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	presets := map[string]config.Preset{
+		"fixed_price": {DefaultSchedule: "hourly", Label: "固定价"},
+	}
+	st.SetPresets(presets)
+	now := time.Date(2026, 11, 6, 15, 30, 0, 0, time.FixedZone("CST", 8*3600))
+
+	followTask, err := st.Create(Task{
+		WalletID: "w1", WalletName: "a", WalletAddress: "0x1",
+		TaskType: "fixed_price", Schedule: ScheduleFollow, Enabled: true,
+		Params: TaskParams{GasLimit: 1},
+	}, presets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	override, err := st.Create(Task{
+		WalletID: "w2", WalletName: "b", WalletAddress: "0x2",
+		TaskType: "fixed_price", Schedule: "hourly", Enabled: true,
+		Params: TaskParams{GasLimit: 1},
+	}, presets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.EffectiveSchedule(followTask) != "hourly" {
+		t.Fatalf("follow effective=%q", st.EffectiveSchedule(followTask))
+	}
+
+	presets["fixed_price"] = config.Preset{DefaultSchedule: "daily_1159_cst", Label: "固定价"}
+	st.SetPresets(presets)
+	if st.EffectiveSchedule(followTask) != "daily_1159_cst" {
+		t.Fatalf("after preset change effective=%q", st.EffectiveSchedule(followTask))
+	}
+	got, ok := st.Get(followTask.ID)
+	if !ok || got.Schedule != ScheduleFollow {
+		t.Fatalf("follow task schedule mutated: %+v", got)
+	}
+	if st.EffectiveSchedule(override) != "hourly" {
+		t.Fatalf("override should stay hourly, got %q", st.EffectiveSchedule(override))
+	}
+
+	n, err := st.RecomputeFollowers("fixed_price", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n < 1 {
+		t.Fatalf("recompute followers n=%d", n)
+	}
+	got, _ = st.Get(followTask.ID)
+	want := ComputeFireAt("daily_1159_cst", now, 0, nil)
+	if got.FireAt == nil || !got.FireAt.Equal(want) {
+		t.Fatalf("follow fireAt=%v want %v", got.FireAt, want)
 	}
 }

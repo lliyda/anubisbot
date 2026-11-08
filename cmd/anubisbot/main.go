@@ -18,6 +18,7 @@ import (
 	"anubisbot/internal/logstore"
 	"anubisbot/internal/rpc"
 	"anubisbot/internal/scheduler"
+	"anubisbot/internal/schedules"
 	"anubisbot/internal/settings"
 	"anubisbot/internal/tasks"
 	"anubisbot/internal/timesync"
@@ -76,6 +77,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	schedStore, err := schedules.Load("data/schedules.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	tSim.SetSchedules(schedStore)
+	tLive.SetSchedules(schedStore)
+	tSim.SetPresets(presets)
+	tLive.SetPresets(presets)
 	// seed defaults only in SIM
 	{
 		var ref tasks.WalletRef
@@ -88,11 +97,6 @@ func main() {
 			log.Printf("ensure default tasks: %v", err)
 		} else if n > 0 {
 			log.Printf("seeded %d default sim tasks", n)
-		}
-		if n, err := tSim.SyncAllSchedules(presets, time.Now()); err != nil {
-			log.Printf("sync sim task schedules: %v", err)
-		} else if n > 0 {
-			log.Printf("synced schedule on %d sim task(s)", n)
 		}
 		if n, err := tSim.NormalizeAllFireAts(time.Now()); err != nil {
 			log.Printf("normalize sim fireAt: %v", err)
@@ -169,6 +173,7 @@ func main() {
 		Sched:       sched,
 		Runner:      runner,
 		Settings:    stStore,
+		Schedules:   schedStore,
 		WebFS:       openWebFS(),
 	}
 	srvAPI.ApplyMode(mode)

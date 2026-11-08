@@ -458,7 +458,11 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 		}
 	}
 	extra["ok"] = anyOK
-	if tt.Schedule == "once" || (anyOK && tt.StopAfterSuccess) {
+	effSch := tt.Schedule
+	if s.Tasks != nil {
+		effSch = s.Tasks.EffectiveSchedule(tt)
+	}
+	if effSch == "once" || (anyOK && tt.StopAfterSuccess) {
 		tt.Enabled = false
 		tt.FireAt = nil
 		if tt.Status == "armed" {
@@ -516,7 +520,7 @@ func (s *Scheduler) finishFanout(taskID string, fireKey int64, anyOK bool) {
 	delete(s.fanoutErr, fk)
 	s.mu.Unlock()
 
-	if tt.Schedule != "once" {
+	if effSch != "once" {
 		s.maybeRearm(taskID, s.Syncer.NowChain())
 	}
 }
@@ -624,7 +628,7 @@ func (s *Scheduler) maybeRearm(id string, now time.Time) {
 	if !ok || !t.Enabled {
 		return
 	}
-	if t.Schedule != "hourly" && t.Schedule != "daily_1159_cst" {
+	if s.Tasks == nil || !s.Tasks.IsRepeatingTask(t) {
 		return
 	}
 	if t.Status != "success" && t.Status != "failed" && t.Status != "fired" {

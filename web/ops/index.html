@@ -138,7 +138,10 @@
           <select name="taskType" id="typeSelect" required></select>
         </label>
         <p class="desc" id="typeDesc"></p>
-        <p class="desc" id="typeScheduleHint">定时：随任务类型</p>
+        <label>定时
+          <select name="schedule" id="taskScheduleSelect" required></select>
+        </label>
+        <p class="desc" id="typeScheduleHint">选「跟随默认」则随任务类型默认定时变化；选具体项则仅本任务生效</p>
         <div class="form-row">
           <label>Gas Limit<input name="gasLimit" type="number" /></label>
           <label>Gas Price (gwei)<input name="gasPriceGwei" type="number" step="0.01" placeholder="空=节点建议" /></label>
@@ -221,6 +224,7 @@
       </div>
       <div class="tabs" id="settingsTabs">
         <button type="button" class="tab active" data-tab="general">通用</button>
+        <button type="button" class="tab" data-tab="schedules">定时管理</button>
         <button type="button" class="tab" data-tab="params">任务类型管理</button>
         <button type="button" class="tab" data-tab="sim">模拟执行</button>
       </div>
@@ -245,6 +249,14 @@
               <button type="submit" class="btn primary">保存通用设置</button>
             </div>
           </form>
+        </div>
+
+        <div class="tab-panel" id="tab-schedules">
+          <div class="manage-toolbar">
+            <button type="button" class="btn secondary" id="btnAddSchedule">新建定时</button>
+          </div>
+          <div class="task-manage-list" id="scheduleManageList"></div>
+          <p class="desc">内置定时只读；自定义定时可供任务类型选择。改定时后已启用任务会重算下次执行。</p>
         </div>
 
         <div class="tab-panel" id="tab-params">
@@ -279,6 +291,51 @@
     </div>
   </dialog>
 
+  <dialog id="scheduleDialog">
+    <form id="scheduleForm" class="dialog-box form compact">
+      <h3 id="scheduleDialogTitle">新建定时</h3>
+      <input type="hidden" name="editId" value="" />
+      <fieldset class="radio-row">
+        <legend>周期</legend>
+        <label class="check"><input type="radio" name="period" value="daily" checked /> 每天</label>
+        <label class="check"><input type="radio" name="period" value="weekly" /> 每周</label>
+      </fieldset>
+      <div class="field" id="scheduleWeekdayWrap" hidden>
+        <span class="field-label">星期</span>
+        <div class="msel" id="scheduleWeekdayMsel">
+          <button type="button" class="msel-btn" id="scheduleWeekdayBtn" aria-expanded="false">请选择</button>
+          <div class="msel-panel" id="scheduleWeekdayPanel" hidden>
+            <label class="check msel-opt"><input type="checkbox" value="mon" /> <span>周一</span></label>
+            <label class="check msel-opt"><input type="checkbox" value="tue" /> <span>周二</span></label>
+            <label class="check msel-opt"><input type="checkbox" value="wed" /> <span>周三</span></label>
+            <label class="check msel-opt"><input type="checkbox" value="thu" /> <span>周四</span></label>
+            <label class="check msel-opt"><input type="checkbox" value="fri" /> <span>周五</span></label>
+            <label class="check msel-opt"><input type="checkbox" value="sat" /> <span>周六</span></label>
+            <label class="check msel-opt"><input type="checkbox" value="sun" /> <span>周日</span></label>
+          </div>
+        </div>
+      </div>
+      <fieldset class="radio-row">
+        <legend>时刻</legend>
+        <label class="check"><input type="radio" name="hourMode" value="every_hour" checked /> 每小时</label>
+        <label class="check"><input type="radio" name="hourMode" value="at_hour" /> 某小时</label>
+      </fieldset>
+      <div class="form-row">
+        <label id="scheduleHourWrap" hidden>小时 (0–23)
+          <input name="hour" type="number" min="0" max="23" value="11" />
+        </label>
+        <label>第几分 (0–59)
+          <input name="minute" type="number" min="0" max="59" value="0" required />
+        </label>
+      </div>
+      <p class="desc" id="schedulePreview">将创建：每整点第0分</p>
+      <div class="form-actions">
+        <button type="button" class="btn secondary" id="btnCancelSchedule">取消</button>
+        <button type="submit" class="btn primary">保存</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="presetDialog">
     <form id="presetForm" class="dialog-box dialog-wide form compact preset-form">
       <div class="preset-head">
@@ -298,11 +355,7 @@
           <input name="function" id="presetFunctionInput" placeholder="自动取唯一函数名" />
         </label>
         <label>定时
-          <select name="defaultSchedule" required>
-            <option value="hourly">每整点</option>
-            <option value="daily_1159_cst">每日 11:59（CST）</option>
-            <option value="once">仅一次</option>
-          </select>
+          <select name="defaultSchedule" id="presetScheduleSelect" required></select>
         </label>
         <div id="presetArgsFields"></div>
         <label>默认 Gas Limit<input name="gasLimit" type="number" /></label>
