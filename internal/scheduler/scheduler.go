@@ -175,25 +175,40 @@ func (s *Scheduler) tick(ctx context.Context) {
 	}
 
 	// Sign before any fanout send so all RPCs share one nonce/hash.
-	for _, t := range toSign {
-		fireKey := t.FireAt.UTC().UnixNano()
-		signed, err := s.Runner.Sign(ctx, t, t.FireAt.UTC())
-		s.mu.Lock()
-		if err != nil {
-			s.Logs.Add(logstore.Entry{
-				TaskID: t.ID, Wallet: t.WalletName, Event: "sign_fail",
-				Message: err.Error(),
-			})
-		} else {
-			s.cache[t.ID] = signed
-			s.signed[t.ID] = fireKey
-			s.Logs.Add(logstore.Entry{
-				TaskID: t.ID, Wallet: t.WalletName, Event: "signed",
-				Message: fmt.Sprintf("pre-signed for fireAt=%s maxLead=%dms", t.FireAt.Format(time.RFC3339), maxLead),
-			})
-		}
-		s.mu.Unlock()
+	// Parallelize across wallets (each task has its own key/nonce).
+	signConc := 8
+	if s.Runner != nil && s.Runner.Concurrency > 0 {
+		signConc = s.Runner.Concurrency
 	}
+	sem := make(chan struct{}, signConc)
+	var signWG sync.WaitGroup
+	for _, t := range toSign {
+		t := t
+		signWG.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer signWG.Done()
+			defer func() { <-sem }()
+			fireKey := t.FireAt.UTC().UnixNano()
+			signed, err := s.Runner.Sign(ctx, t, t.FireAt.UTC())
+			s.mu.Lock()
+			if err != nil {
+				s.Logs.Add(logstore.Entry{
+					TaskID: t.ID, Wallet: t.WalletName, Event: "sign_fail",
+					Message: err.Error(),
+				})
+			} else {
+				s.cache[t.ID] = signed
+				s.signed[t.ID] = fireKey
+				s.Logs.Add(logstore.Entry{
+					TaskID: t.ID, Wallet: t.WalletName, Event: "signed",
+					Message: fmt.Sprintf("pre-signed for fireAt=%s maxLead=%dms", t.FireAt.Format(time.RFC3339), maxLead),
+				})
+			}
+			s.mu.Unlock()
+		}()
+	}
+	signWG.Wait()
 
 	for _, t := range s.Tasks.List() {
 		// armed: not yet started; fired: first RPC(s) already sent — must keep
